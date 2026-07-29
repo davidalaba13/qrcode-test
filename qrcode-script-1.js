@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Binance QR Modal Trigger
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @description  Double-click any button to show a modern Binance UI QR modal.
 // @author       You
 // @match        *://*/*
@@ -103,20 +103,23 @@
             margin-bottom: 28px;
             margin-top: 0px;
             overflow: hidden;
-            gap: 8px; /* Spacing between icon and text */
+            gap: 10px; /* Spacing between icon and text */
         }
         #bn-logo img {
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 32px;
             display: block;
             object-fit: contain;
         }
         #bn-logo-text {
             color: #F3BA2F;
-            font-weight: 700;
-            font-size: 22px;
-            letter-spacing: 1px;
+            font-weight: 600;
+            font-size: 20px;
+            letter-spacing: 0.3px; /* Wide letter spacing to match real logo */
             line-height: 1;
+            display: inline-block;
+            transform: scaleX(1.1); /* Stretches text horizontally to mimic official Binance typography */
+            transform-origin: left center;
         }
         #bn-title {
             color: #ffffff;
