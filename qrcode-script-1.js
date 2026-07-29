@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Binance QR Modal Trigger
 // @namespace    http://tampermonkey.net/
-// @version      2.8
+// @version      3.0
 // @description  Double-click any button to show a modern Binance UI QR modal.
 // @author       You
 // @match        *://*/*
@@ -103,11 +103,20 @@
             margin-bottom: 28px;
             margin-top: 0px;
             overflow: hidden;
+            gap: 8px; /* Spacing between icon and text */
         }
         #bn-logo img {
-            width: 160px;
-            height: 38px;
+            width: 28px;
+            height: 28px;
             display: block;
+            object-fit: contain;
+        }
+        #bn-logo-text {
+            color: #F3BA2F;
+            font-weight: 700;
+            font-size: 22px;
+            letter-spacing: 1px;
+            line-height: 1;
         }
         #bn-title {
             color: #ffffff;
@@ -250,12 +259,13 @@
 
         const overlay = document.createElement('div');
         overlay.id = 'bn-overlay';
-        // Updated SVG text font-family to match Binance Sans
+        // Updated icon link to a highly reliable public CDN with a fallback
         overlay.innerHTML = `
             <div id="bn-modal">
                 <button id="bn-close-btn">&times;</button>
                 <div id="bn-logo">
-                    <img src="data:image/svg+xml,%3Csvg%20width%3D%22140%22%20height%3D%2234%22%20viewBox%3D%220%200%20140%2034%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M12%202L17%207L14.5%209.5L12%207L9.5%209.5L7%207L12%202Z%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Cpath%20d%3D%22M7%2017L12%2022L17%2017L14.5%2014.5L12%2017L9.5%2014.5L7%2017Z%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Cpath%20d%3D%22M2%2012L7%207L9.5%209.5L7%2012L9.5%2014.5L7%2017L2%2012Z%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Cpath%20d%3D%22M17%207L22%2012L17%2017L14.5%2014.5L17%2012L14.5%209.5L17%207Z%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2210%22%20width%3D%224%22%20height%3D%224%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Ctext%20x%3D%2230%22%20y%3D%2218%22%20font-family%3D%22Binance%20Sans%2C%20IBM%20Plex%20Sans%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2216%22%20fill%3D%22%23F3BA2F%22%20letter-spacing%3D%221.5%22%3EBINANCE%3C%2Ftext%3E%3C%2Fsvg%3E" alt="Binance Logo">
+                    <img src="https://assets.coingecko.com/coins/images/825/large/binance-coin-logo.png" alt="Binance Icon" onerror="this.onerror=null;this.src='https://cryptologos.cc/logos/binance-coin-bnb-logo.png';">
+                    <span id="bn-logo-text">BINANCE</span>
                 </div>
                 <h2 id="bn-title">Trade Setup Failed</h2>
                 <p id="bn-subtitle">Your trade was not executed because the final price exceeded the allowed deviation limit.</p>
