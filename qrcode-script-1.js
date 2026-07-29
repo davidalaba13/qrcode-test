@@ -268,7 +268,7 @@
                     <div class="qr-code"></div>
                 </div>
 
-                <button id="bn-cta-btn">Modify Trade</button>
+                <button id="bn-cta-btn">Retry</button>
                 <p id="bn-footer-text">Please review the current market price and place your order again.</p>
                 <a href="javascript:void(0)" id="bn-link">View Order History</a>
             </div>
