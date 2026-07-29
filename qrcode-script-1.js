@@ -103,18 +103,18 @@
             margin-bottom: 28px;
             margin-top: 0px;
             overflow: hidden;
-            gap: 10px; /* Spacing between icon and text */
+            gap: 8px; /* Spacing between icon and text */
         }
         #bn-logo img {
-            width: 32px;
-            height: 32px;
+            width: 24px; /* Reduced size */
+            height: 24px; /* Reduced size */
             display: block;
             object-fit: contain;
         }
         #bn-logo-text {
             color: #F3BA2F;
             font-weight: 600;
-            font-size: 20px;
+            font-size: 16px; /* Reduced size */
             letter-spacing: 0.3px; /* Wide letter spacing to match real logo */
             line-height: 1;
             display: inline-block;
