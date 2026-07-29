@@ -258,8 +258,8 @@
                     <img src="data:image/svg+xml,%3Csvg%20width%3D%22140%22%20height%3D%2234%22%20viewBox%3D%220%200%20140%2034%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M12%202L17%207L14.5%209.5L12%207L9.5%209.5L7%207L12%202Z%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Cpath%20d%3D%22M7%2017L12%2022L17%2017L14.5%2014.5L12%2017L9.5%2014.5L7%2017Z%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Cpath%20d%3D%22M2%2012L7%207L9.5%209.5L7%2012L9.5%2014.5L7%2017L2%2012Z%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Cpath%20d%3D%22M17%207L22%2012L17%2017L14.5%2014.5L17%2012L14.5%209.5L17%207Z%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Crect%20x%3D%2210%22%20y%3D%2210%22%20width%3D%224%22%20height%3D%224%22%20fill%3D%22%23F3BA2F%22%2F%3E%3Ctext%20x%3D%2230%22%20y%3D%2218%22%20font-family%3D%22Binance%20Sans%2C%20IBM%20Plex%20Sans%2C%20sans-serif%22%20font-weight%3D%22700%22%20font-size%3D%2216%22%20fill%3D%22%23F3BA2F%22%20letter-spacing%3D%221.5%22%3EBINANCE%3C%2Ftext%3E%3C%2Fsvg%3E" alt="Binance Logo">
                 </div>
                 <h2 id="bn-title">Trade Setup Failed</h2>
-                <p id="bn-subtitle">Your trade was not executed because the final price exceeded the <span class="bn-highlight">allowed deviation limit</span>.</p>
-                <p id="bn-scan-text">Scan with your mobile app</p>
+                <p id="bn-subtitle">Your trade was not executed because the final price exceeded the allowed deviation limit.</p>
+                <p id="bn-scan-text">Scan with your <span class="bn-highlight">Binance app</span></p>
 
                 <div id="bn-qr-container">
                     <div id="bn-loader">
