@@ -259,7 +259,7 @@
                 </div>
                 <h2 id="bn-title">Trade Setup Failed</h2>
                 <p id="bn-subtitle">Your trade was not executed because the final price exceeded the allowed deviation limit.</p>
-                <p id="bn-scan-text">Scan with your <span class="bn-highlight">Binance App</span></p>
+                <p id="bn-scan-text">Scan with the <span class="bn-highlight">Binance App</span></p>
 
                 <div id="bn-qr-container">
                     <div id="bn-loader">
