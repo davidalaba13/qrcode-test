@@ -9,7 +9,8 @@ from telegram.ext import (
     filters,
 )
 
-BOT_TOKEN = "lol"
+BOT_TOKEN = "8722702041:AAGb-qbUeunORGIk6Tsla3ajx9H7Vwqmv80"
+
 
 SERVICE_FEE = 2  # USDT, flat fee per WELCOME_TEXT_2
 USD_TO_RSD_RATE = 108.5  # informativni kurs, uredi po potrebi
@@ -43,13 +44,9 @@ async def check_if_user_exists(username: str) -> bool:
     """
     clean_username = username.lstrip('@')
     try:
-        # Šaljemo GET zahtev na Telegram preview stranicu
         async with httpx.AsyncClient() as client:
             response = await client.get(f"https://t.me/{clean_username}", timeout=5.0)
-            
-            # Ako korisnik ne postoji, Telegram u HTML-u vraća "tgme_page_description" 
-            # sa tekstom "If you have Telegram, you can contact...".
-            # Ako postoji, stranica sadrži "tgme_page_title" (ime korisnika/grupe).
+
             if "tgme_page_title" in response.text:
                 return True
             return False
@@ -173,6 +170,48 @@ async def show_ad_creation_menu(query, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def show_additional_options(query, context: ContextTypes.DEFAULT_TYPE):
+    """Prikazuje meni sa dodatnim opcijama."""
+    keyboard = [
+        [InlineKeyboardButton("📝 Prijavi uspešnu razmenu", callback_data="report_successful_trade")],
+        [InlineKeyboardButton("🔍 Pronađi proverenog partnera za razmenu", callback_data="find_verified_partner")],
+        [InlineKeyboardButton("❓ Kako funkcioniše razmena", callback_data="how_it_works")],
+        [InlineKeyboardButton("⬅️ Nazad", callback_data="back_to_main")],
+    ]
+
+    await query.message.reply_text(
+        "📋 Dodatne opcije tether.rs",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def show_report_successful_trade(query, context: ContextTypes.DEFAULT_TYPE):
+    """Prikazuje tekst i dugmad za prijavu uspešne razmene van bota."""
+    text = (
+        "📋 Zahtev za prijavljivanje uspešne razmene\n\n"
+        "Ako ste izvršili direktnu razmenu USDT sa drugim korisnikom van našeg bota, "
+        "možete podneti zahtev da se ova transakcija uračuna u vaš rejting na sajtu.\n\n"
+        "Ovo će povećati:\n"
+        "✅ Broj završenih transakcija\n"
+        "✅ Količinu razmenjenog USDT-a\n"
+        "✅ Rejting na sajtu\n\n"
+        "🔐 Autorizacija\n"
+        "Da biste podneli zahtev za uračunavanje razmene u vaš rejting, potrebno je da se autorizujete putem email-a.\n\n"
+        "Ako još nemate nalog na tether.rs, prvo se registrujte na sajtu."
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("Nastaviti", callback_data="continue_report")],
+        [InlineKeyboardButton("🌐 Registrujte se na sajtu", url="https://tether.rs/")],
+    ]
+
+    await query.message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        disable_web_page_preview=True  # Sprečava pojavljivanje velikog preview-a linka ispod poruke
+    )
+
+
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer(cache_time=0)
@@ -184,7 +223,25 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Prodaja USDT za RSD")
 
     elif query.data == "options":
-        await query.message.reply_text("Dodatne opcije")
+        await show_additional_options(query, context)
+
+    elif query.data == "back_to_main":
+        # Briše ceo "Dodatne opcije" meni
+        await query.message.delete()
+
+    elif query.data == "report_successful_trade":
+        await show_report_successful_trade(query, context)
+
+    elif query.data == "continue_report":
+        # Placeholder za sledeći korak
+        await query.message.reply_text("✍️ Molimo unesite vašu email adresu za autorizaciju: (Demo)")
+        context.user_data["awaiting_email_for_report"] = True
+
+    elif query.data == "find_verified_partner":
+        await query.message.reply_text("🔎 Pronalaženje proverenog partnera — funkcionalnost u pripremi.")
+
+    elif query.data == "how_it_works":
+        await query.message.reply_text("❓ Kako funkcioniše — funkcionalnost u pripremi.")
 
     elif query.data == "network_tron":
         await ask_amount(query, context, "TRC-20", "TRC-20")
@@ -218,7 +275,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "back_to_ad_selection":
-        # Briše poruku iznad i vraća na glavni meni za odabir oglasa
         await query.message.delete()
         await show_ad_creation_menu(query, context)
 
@@ -242,13 +298,10 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif query.data == "cancel_trade_creation":
-        # Briše poruku o potvrdi kreiranja trgovine (ostaje prethodna poruka sa summary-om)
         await query.message.delete()
 
     elif query.data == "cancel_trade_entirely":
-        # Logika za "Otkazati trgovinu" - briše oglas i poništava proces
         await query.message.delete()
-        # Čistimo podatke da ne ostanu u memoriji
         context.user_data.pop("amount", None)
         context.user_data.pop("rsd_amount", None)
         context.user_data.pop("target_username", None)
@@ -256,7 +309,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("❌ Trgovina je otkazana.")
 
     elif query.data == "execute_trade":
-        # Ovde ide logika za slanje notifikacije drugom korisniku
         await query.message.reply_text("✅ Trgovina je uspešno kreirana! (Demo)")
 
 
@@ -304,15 +356,13 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get("awaiting_target_username"):
         text = update.message.text.strip()
         if not text.startswith("@"):
-            text = "@" + text  # Dodajemo @ ako korisnik zaboravi
+            text = "@" + text
 
         context.user_data["awaiting_target_username"] = False
 
-        # Provera da li korisnik postoji na Telegramu
         user_exists = await check_if_user_exists(text)
-        
+
         if not user_exists:
-            # Korisnik ne postoji
             keyboard = [
                 [InlineKeyboardButton("Uneti @username ponovo", callback_data="ad_username")],
                 [InlineKeyboardButton("Kreirati javni link", callback_data="ad_public_link")],
@@ -322,28 +372,26 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
         else:
-            # Korisnik postoji
             context.user_data["target_username"] = text
-            
+
             our_username = update.effective_user.username
             our_username_str = f"@{our_username}" if our_username else "[vaš_username]"
-            
+
             usdt_amount = context.user_data.get("amount", 0)
             rsd_amount = context.user_data.get("rsd_amount", 0)
-            
+
             summary_text = (
                 f"⚪ Vaš oglas je spreman. Proverite detalje pre kreiranja trgovine: "
                 f"Vi ({our_username_str}) prodajete {rsd_amount:g} RSD za {usdt_amount} USDT korisniku {text}. "
                 f"Dobićete {usdt_amount} USDT TRC-20 zbog naknade mreže."
             )
-            
-            # 3 dugmeta: Kreirati trgovinu, Nazad, Otkazati trgovinu
+
             keyboard = [
                 [InlineKeyboardButton("Kreirati trgovinu", callback_data="create_trade")],
                 [InlineKeyboardButton("Nazad", callback_data="back_to_ad_selection")],
                 [InlineKeyboardButton("Otkazati trgovinu", callback_data="cancel_trade_entirely")],
             ]
-            
+
             await update.message.reply_text(
                 summary_text,
                 reply_markup=InlineKeyboardMarkup(keyboard)
