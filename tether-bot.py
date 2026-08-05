@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 from telegram.error import BadRequest, Forbidden
 
-BOT_TOKEN = "8722702041:AAGb-qbUeunORGIk6Tsla3ajx9H7Vwqmv80"
+BOT_TOKEN = "token"
 
 SERVICE_FEE = 2  # USDT, flat fee per WELCOME_TEXT_2
 USD_TO_RSD_RATE = 108.5  # informativni kurs, uredi po potrebi
