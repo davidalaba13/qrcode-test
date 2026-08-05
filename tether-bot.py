@@ -1,4 +1,7 @@
 import httpx
+import random
+import json
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -8,9 +11,9 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+from telegram.error import BadRequest, Forbidden
 
-BOT_TOKEN = "token"
-
+BOT_TOKEN = "8722702041:AAGb-qbUeunORGIk6Tsla3ajx9H7Vwqmv80"
 
 SERVICE_FEE = 2  # USDT, flat fee per WELCOME_TEXT_2
 USD_TO_RSD_RATE = 108.5  # informativni kurs, uredi po potrebi
@@ -35,6 +38,32 @@ Kako ovo funkcioniše:
 Provizija: 2 USDT ( pokriva samo troškove TRON mreže )
 """
 
+# In-memory dictionaries to store active trades and users
+TRADES = {}
+USER_DATABASE = {}  # Maps username -> chat_id
+USER_DATABASE_FILE = "users.json"
+
+
+def load_user_database():
+    """Učitava korisnike iz JSON fajla pri pokretanju bota."""
+    global USER_DATABASE
+    if os.path.exists(USER_DATABASE_FILE):
+        try:
+            with open(USER_DATABASE_FILE, "r") as f:
+                USER_DATABASE = json.load(f)
+        except Exception as e:
+            print(f"Greška pri učitavanju baze korisnika: {e}")
+            USER_DATABASE = {}
+
+
+def save_user_database():
+    """Čuva korisnike u JSON fajl."""
+    try:
+        with open(USER_DATABASE_FILE, "w") as f:
+            json.dump(USER_DATABASE, f)
+    except Exception as e:
+        print(f"Greška pri čuvanju baze korisnika: {e}")
+
 
 async def check_if_user_exists(username: str) -> bool:
     """
@@ -56,6 +85,68 @@ async def check_if_user_exists(username: str) -> bool:
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Register the user automatically when they start the bot
+    user = update.effective_user
+    if user and user.username:
+        USER_DATABASE[user.username.lower()] = update.effective_chat.id
+        save_user_database()
+
+    # Check if the bot was started via a deep link (e.g. trade proposal)
+    if context.args and context.args[0].startswith("trade_"):
+        trade_id = context.args[0][6:]
+        trade = TRADES.get(trade_id)
+        
+        if trade:
+            initiator = trade["initiator"]
+            target = trade["target"]
+            amount = trade["amount"]
+            rsd_amount = trade["rsd_amount"]
+            network = trade["network"]
+            pay_amount = trade["pay_amount"]
+            trade_type = trade["type"]
+            
+            # 1st message
+            text1 = f"Korisnik {initiator} vam predlaže trgovinu:"
+            await update.message.reply_text(text1)
+            
+            # 2nd message logic based on whether initiator is buying or selling
+            title = "Kupovina" if trade_type == "buy" else "Prodaja"
+            
+            if trade_type == "buy":
+                # Initiator is buying USDT, so target is selling (Prodavac)
+                text2 = (
+                    f"🔵 {title} USDT {network}\n"
+                    f"👤 Prodavac: {target} (vi)\n"
+                    f"👤 Kupac: {initiator} (kupuje {amount} USDT {network})\n"
+                    f"💰 Dobićete: {rsd_amount:g} RSD\n"
+                    f"💸 Platićete: {pay_amount} USDT {network}\n"
+                    f"ℹ️ Gas fee: {SERVICE_FEE} USDT (zadržava se od USDT za pokrivanje troškova mreže)\n\n"
+                    f"⏰ Ponuda važi 30 minuta"
+                )
+            else:
+                # Initiator is selling USDT, so target is buying (Kupac)
+                text2 = (
+                    f"🔵 {title} USDT {network}\n"
+                    f"👤 Prodavac: {initiator}\n"
+                    f"👤 Kupac: {target} (vi) (kupuje {amount} USDT {network})\n"
+                    f"💰 Dobićete: {amount} USDT {network}\n"
+                    f"💸 Platićete: {rsd_amount:g} RSD\n"
+                    f"ℹ️ Gas fee: {SERVICE_FEE} USDT (zadržava se od USDT za pokrivanje troškova mreže)\n\n"
+                    f"⏰ Ponuda važi 30 minuta"
+                )
+            
+            # Attach the Accept/Reject buttons to the message
+            target_keyboard = [
+                [InlineKeyboardButton("Prihvatiti trgovinu", callback_data="accept_trade")],
+                [InlineKeyboardButton("Otkazati trgovinu", callback_data="reject_trade")],
+            ]
+            await update.message.reply_text(
+                text2,
+                reply_markup=InlineKeyboardMarkup(target_keyboard)
+            )
+            return
+
+    # Default welcome flow if no deep link or trade not found
     await update.message.reply_text(WELCOME_TEXT_1)
 
     keyboard = [
@@ -68,6 +159,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WELCOME_TEXT_2,
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
+
+
+async def submit_exchange(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Komanda /submit_exchange prikazuje meni za prijavu uspešne razmene."""
+    await show_report_successful_trade(update, context)
 
 
 async def show_network_selection(query, context: ContextTypes.DEFAULT_TYPE):
@@ -185,7 +281,24 @@ async def show_additional_options(query, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def show_report_successful_trade(query, context: ContextTypes.DEFAULT_TYPE):
+async def show_location_selection(query, context: ContextTypes.DEFAULT_TYPE):
+    """Prikazuje meni za izbor lokacije pri pronalaženju partnera."""
+    keyboard = [
+        [InlineKeyboardButton("📍 Beograd", callback_data="location_beograd")],
+        [InlineKeyboardButton("📍 Novi sad", callback_data="location_novi_sad")],
+        [InlineKeyboardButton("📍 Niš", callback_data="location_nis")],
+        [InlineKeyboardButton("📍 Kragujevac", callback_data="location_kragujevac")],
+        [InlineKeyboardButton("💳 ONLINE - Uplata na Račun:", callback_data="location_online")],
+        [InlineKeyboardButton("⬅️ Nazad", callback_data="back_to_options")],
+    ]
+
+    await query.message.reply_text(
+        "Odakle ste?",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def show_report_successful_trade(update_or_query, context: ContextTypes.DEFAULT_TYPE):
     """Prikazuje tekst i dugmad za prijavu uspešne razmene van bota."""
     text = (
         "📋 Zahtev za prijavljivanje uspešne razmene\n\n"
@@ -205,7 +318,7 @@ async def show_report_successful_trade(query, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("🌐 Registrujte se na sajtu", url="https://tether.rs/")],
     ]
 
-    await query.message.reply_text(
+    await update_or_query.message.reply_text(
         text,
         reply_markup=InlineKeyboardMarkup(keyboard),
         disable_web_page_preview=True  # Sprečava pojavljivanje velikog preview-a linka ispod poruke
@@ -233,15 +346,124 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_report_successful_trade(query, context)
 
     elif query.data == "continue_report":
-        # Placeholder za sledeći korak
-        await query.message.reply_text("✍️ Molimo unesite vašu email adresu za autorizaciju: (Demo)")
+        # Bot traži email adresu od korisnika
         context.user_data["awaiting_email_for_report"] = True
+        keyboard = [
+            [InlineKeyboardButton("Otkaži", callback_data="cancel_email_report")]
+        ]
+        await query.message.reply_text(
+            "📧 Unesite vaš email\n\n"
+            "Navedite email adresu sa kojom ste registrovani na tether.rs",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "cancel_email_report":
+        context.user_data["awaiting_email_for_report"] = False
+        keyboard = [
+            [InlineKeyboardButton("🟢 Kupovina USDT za RSD", callback_data="buy")],
+            [InlineKeyboardButton("🔵 Prodaja USDT za RSD", callback_data="sell")],
+            [InlineKeyboardButton("📋 Dodatne opcije", callback_data="options")],
+        ]
+        await query.message.reply_text(
+            "Akcija otkazana",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     elif query.data == "find_verified_partner":
-        await query.message.reply_text("🔎 Pronalaženje proverenog partnera — funkcionalnost u pripremi.")
+        await show_location_selection(query, context)
+
+    elif query.data == "back_to_options":
+        # Vraća korisnika na "Dodatne opcije"
+        await query.message.delete()
+        await show_additional_options(query, context)
+
+    elif query.data == "location_beograd":
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Nazad", callback_data="back_to_locations")]
+        ]
+        await query.message.reply_text(
+            "Ovo su nam provereni partneri u Beogradu: @whatnow92 @jvnklzc @Sajci @milanfirma",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "location_novi_sad":
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Nazad", callback_data="back_to_locations")]
+        ]
+        await query.message.reply_text(
+            "Kontaktirajte naseg partnera u Novom Sadu @JohnZony",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "location_nis":
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Nazad", callback_data="back_to_locations")]
+        ]
+        await query.message.reply_text(
+            "Kontaktirajte naseg partnera u Nisu @OtkupKriptovaluta",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "location_kragujevac":
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Nazad", callback_data="back_to_locations")]
+        ]
+        await query.message.reply_text(
+            "Kontaktirajte naseg partnera u Kragujevcu @acikus",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "location_online":
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Nazad", callback_data="back_to_locations")]
+        ]
+        await query.message.reply_text(
+            "Za uplate na račun fizičkog lica kao i za uplate na račun firme iz Srbije ili inostranstva kontaktirajte nas direktno @TetherSrb ; u poruci navedite iznos i na koji tip računa želite primiti uplatu.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "back_to_locations":
+        # Briše tu poruku, a originalni meni sa gradovima ostaje jer je već poslat iznad
+        await query.message.delete()
 
     elif query.data == "how_it_works":
-        await query.message.reply_text("❓ Kako funkcioniše — funkcionalnost u pripremi.")
+        how_it_works_text = (
+            "➡️ Postavljanje objave\n"
+            "Svaki registrovani korisnik može postaviti objavu veoma brzo i jednostavno. Objava se može postaviti sa "
+            "naslovne stranice (Tab \"Objavi ponudu/potražnju\") ili isti taj Tab na stranici Moj nalog i objave.\n"
+            "Prvo birate da li kupujete ili prodajete Tether, nakon čega unosite iznos, birate Layer i proviziju. U polje Total "
+            "automatski se prikazuje ukupan iznos koji nudite odnosno očekujete.\n"
+            "Polje Lokacije predstavlja jedno ili više mesta gde želite da izvršite razmenu i automatski je popunjeno "
+            "podatkom koji ste uneli pri registraciji, ali umesto toga možete uneti i druge lokacije koje će važiti samo za tu "
+            "Vašu objavu. Te lokacije ne moraju da predstavljaju Vašu stvarnu lokaciju odnosno grad odakle ste, već "
+            "predstavlja jedno ili više mesta koja Vam odgovaraju za razmenu.\n"
+            "Na kraju birate vreme do kada će objava biti aktivna na sajtu (7, 14 ili 30 dana). Ukoliko do isteka odabranog "
+            "vremena ne produžite trajanje objave, ona će biti automatski obrisana.\n\n"
+            "➡️ Izmena i brisanje objave\n"
+            "Uvek možete promeniti sve vezano za Vašu objavu: Iznos, Layer, proviziju, lokacije ili produžiti vreme trajanja. "
+            "To radite na stranici Moj nalog i objave, u Tab-u MOJE OBJAVE, klikom na ikonu zelene olovčice u koloni "
+            "AKCIJE.\n"
+            "Ukoliko objava nije više aktuelna, možete je obrisati klikom na trash ikonu u istoj koloni.\n\n"
+            "➡️ Kontakt između članova\n"
+            "Ukoliko ste zainteresovani za neku objavu, iniciraćete prepisku sa članom koji je postavio objavu klikom na "
+            "dugme PORUKA iz tabele na naslovnoj stranici. Unesite poruku i izaberite da li će biti prikazan Vaš nickname ili "
+            "ne i nakon slanja bićete automatski preusmereni na stranicu Prepiske.\n"
+            "Na toj stranici će biti prikazane sve Vaše prepiske. Član koji je postavio objavu biće mailom obavešten da ima "
+            "novu poruku, a Vi ćete moći da vidite da li je poruka pročitana u vidu plave dvostuke check ikone u donjem "
+            "desnom uglu Vaše poruke. Takođe, i Vi ćete biti mailom obavešteni kada dobijete odgovor.\n"
+            "Daljom prepiskom dogovorite sve detalje razmene: mesto, vreme i sve ostalo po potrebi. Taj deo je prepušten "
+            "na volju Vama i Vašem sagovorniku.\n\n"
+            "➡️ Razmena\n"
+            "Prodavac Tethera kupcu prebacuje dogovorenu svotu, a kupac isplaćuje prodavca u dogovrenoj valuti na ruke "
+            "ili na neki drugi unapred dogovoren način."
+        )
+        keyboard = [
+            [InlineKeyboardButton("⬅️ Nazad", callback_data="back_to_options")]
+        ]
+        await query.message.reply_text(
+            how_it_works_text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     elif query.data == "network_tron":
         await ask_amount(query, context, "TRC-20", "TRC-20")
@@ -262,7 +484,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "rsd_confirm_continue":
         await show_ad_creation_menu(query, context)
 
-    # --- LOGIKA ZA @USERNAME ---
+    # --- LOGIKA ZA @username ---
 
     elif query.data == "ad_username":
         context.user_data["awaiting_target_username"] = True
@@ -284,8 +506,8 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "create_trade":
         target_user = context.user_data.get("target_username", "@username")
         confirm_text = (
-            "Da li želite da kreirate trgovinu?\n"
-            f"Korisnik {target_user} će dobiti obaveštenje i imaće 30 minuta da prihvati ponudu.\n"
+            "Da li želite da kreirate trgovinu?\n\n"
+            f"Korisnik {target_user} će dobiti obaveštenje i imaće 30 minuta da prihvati ponudu.\n\n"
             "Napomena: nakon kreiranja trgovina se neće moći menjati."
         )
         keyboard = [
@@ -301,19 +523,156 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.delete()
 
     elif query.data == "cancel_trade_entirely":
-        await query.message.delete()
+        target_user = context.user_data.get("target_username", "@username")
+        trade_id = context.user_data.get("trade_id", "D20705")
+        text = (
+            f"❌ Odbijanje trgovine #{trade_id}\n\n"
+            f"Navedite razlog odbijanja ponude od {target_user}\n\n"
+            "ℹ️ Prodavac će videti izabrani razlog."
+        )
+        keyboard = [
+            [InlineKeyboardButton("🔴 Više nije aktuelno", callback_data="reject_reason_1")],
+            [InlineKeyboardButton("💸 Ne odgovaraju uslovi", callback_data="reject_reason_2")],
+            [InlineKeyboardButton("⏰ Ne odgovara vreme", callback_data="reject_reason_3")],
+            [InlineKeyboardButton("🔒 Nedovoljno poverenja", callback_data="reject_reason_4")],
+            [InlineKeyboardButton("❓ Drugi razlog", callback_data="reject_reason_5")],
+        ]
+        await query.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data == "accept_trade":
+        await query.message.reply_text("✅ Trgovina je prihvaćena! (Demo)")
+
+    elif query.data == "reject_trade":
+        await query.message.reply_text("❌ Trgovina je odbijena. (Demo)")
+
+    elif query.data in ["reject_reason_1", "reject_reason_2", "reject_reason_3", "reject_reason_4", "reject_reason_5"]:
         context.user_data.pop("amount", None)
         context.user_data.pop("rsd_amount", None)
         context.user_data.pop("target_username", None)
         context.user_data.pop("network", None)
-        await query.message.reply_text("❌ Trgovina je otkazana.")
+        context.user_data.pop("trade_id", None)
+        
+        keyboard = [
+            [InlineKeyboardButton("🟢 Kupovina USDT za RSD", callback_data="buy")],
+            [InlineKeyboardButton("🔵 Prodaja USDT za RSD", callback_data="sell")],
+            [InlineKeyboardButton("📋 Dodatne opcije", callback_data="options")],
+        ]
+        await query.message.reply_text(
+            "Akcija otkazana",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     elif query.data == "execute_trade":
-        await query.message.reply_text("✅ Trgovina je uspešno kreirana! (Demo)")
+        target_user = context.user_data.get("target_username", "@username")
+        initiator_username = update.effective_user.username
+        initiator_str = f"@{initiator_username}" if initiator_username else "[vaš_username]"
+        
+        amount = context.user_data.get("amount", 0)
+        rsd_amount = context.user_data.get("rsd_amount", 0)
+        network = context.user_data.get("network", "TRC-20")
+        pay_amount = amount + SERVICE_FEE
+        trade_type = "buy"  # default since we came from the buy flow
+
+        # Generate a random 5-digit trade ID
+        trade_id = f"D{random.randint(10000, 99999)}"
+        context.user_data["trade_id"] = trade_id
+
+        # Save trade details so the target user can retrieve them via deep link
+        TRADES[trade_id] = {
+            "initiator": initiator_str,
+            "target": target_user,
+            "amount": amount,
+            "rsd_amount": rsd_amount,
+            "network": network,
+            "pay_amount": pay_amount,
+            "type": trade_type
+        }
+
+        # 1st text to initiator
+        text1 = (
+            "✅ Trgovina je kreirana!\n\n"
+            f"Korisnik {target_user} je dobio obaveštenje o vašoj ponudi. Ima 30 minuta da donese odluku. "
+            "Dobićete obaveštenje čim se odazove na ponudu.\n\n"
+            "Takođe možete da mu pošaljete ovu vezu (važi 30 minuta):\n"
+            f"https://t.me/tether_srb_bot?start=trade_{trade_id}"
+        )
+        await query.message.reply_text(text1)
+
+        # 2nd text to initiator
+        text2 = (
+            f"🔵 Trgovina USDT ⇄ RSD\n"
+            f"👤 Prodavac: {target_user}\n"  # Target is the seller of USDT
+            f"👤 Kupac: {initiator_str}\n"   # Initiator is the buyer of USDT
+            f"🔢 Broj trgovine: #{trade_id}\n\n"
+            f"💰 Prodaje se: {pay_amount} USDT → {amount} USDT ({network})(nakon provizije)\n"
+            f"💸 Cena: {rsd_amount:g} RSD"
+        )
+        keyboard = [
+            [InlineKeyboardButton("Otkazati trgovinu", callback_data="cancel_trade_entirely")]
+        ]
+        await query.message.reply_text(
+            text2,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+        # --- AUTOMATSKO SLANJE PORUKE KLIJENTU (TARGET USER) ---
+        target_username_clean = target_user.lstrip('@').lower()
+        target_chat_id = USER_DATABASE.get(target_username_clean)
+
+        if target_chat_id:
+            try:
+                # Send 1st message to target
+                target_text1 = f"Korisnik {initiator_str} vam predlaže trgovinu:"
+                await context.bot.send_message(chat_id=target_chat_id, text=target_text1)
+
+                # Send 2nd message to target
+                target_text2 = (
+                    f"🔵 Kupovina USDT {network}\n"
+                    f"👤 Prodavac: {target_user} (vi)\n"
+                    f"👤 Kupac: {initiator_str} (kupuje {amount} USDT {network})\n"
+                    f"💰 Dobićete: {rsd_amount:g} RSD\n"
+                    f"💸 Platićete: {pay_amount} USDT {network}\n"
+                    f"ℹ️ Gas fee: {SERVICE_FEE} USDT (zadržava se od USDT za pokrivanje troškova mreže)\n\n"
+                    f"⏰ Ponuda važi 30 minuta"
+                )
+                target_keyboard = [
+                    [InlineKeyboardButton("Prihvatiti trgovinu", callback_data="accept_trade")],
+                    [InlineKeyboardButton("Otkazati trgovinu", callback_data="reject_trade")],
+                ]
+                await context.bot.send_message(
+                    chat_id=target_chat_id, 
+                    text=target_text2,
+                    reply_markup=InlineKeyboardMarkup(target_keyboard)
+                )
+            except Exception as e:
+                print(f"Greška pri automatskom slanju poruke: {e}")
 
 
 async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Catches plain-text inputs (amounts, rsd amounts, and usernames)."""
+    """Catches plain-text inputs (amounts, rsd amounts, usernames, emails)."""
+
+    # 0. Unos email adrese za prijavu razmene
+    if context.user_data.get("awaiting_email_for_report"):
+        email = update.message.text.strip()
+
+        # Osnovna provera da li sadrži @ i tačku
+        if "@" not in email or "." not in email:
+            await update.message.reply_text(
+                "⚠️ Unesite validnu email adresu (npr. korisnik@example.com)."
+            )
+            return
+
+        context.user_data["awaiting_email_for_report"] = False
+        context.user_data["report_email"] = email
+
+        await update.message.reply_text(
+            f"✅ Hvala! Vaša email adresa ({email}) je zabeležena.\n"
+            "Nastavak procesa prijave razmene — funkcionalnost u pripremi."
+        )
+        return
 
     # 1. Unos količine USDT
     if context.user_data.get("awaiting_amount"):
@@ -381,7 +740,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rsd_amount = context.user_data.get("rsd_amount", 0)
 
             summary_text = (
-                f"⚪ Vaš oglas je spreman. Proverite detalje pre kreiranja trgovine: "
+                f"⚪ Vaš oglas je spreman. Proverite detalje pre kreiranja trgovine:\n\n "
                 f"Vi ({our_username_str}) prodajete {rsd_amount:g} RSD za {usdt_amount} USDT korisniku {text}. "
                 f"Dobićete {usdt_amount} USDT TRC-20 zbog naknade mreže."
             )
@@ -400,9 +759,13 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    # Load users from file on startup
+    load_user_database()
+
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("submit_exchange", submit_exchange))
     app.add_handler(CallbackQueryHandler(buttons))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_input))
 
