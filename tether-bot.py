@@ -13,7 +13,7 @@ from telegram.ext import (
 )
 from telegram.error import BadRequest, Forbidden
 
-BOT_TOKEN = "token"
+BOT_TOKEN = "token_here"
 
 SERVICE_FEE = 2  # USDT, flat fee per WELCOME_TEXT_2
 USD_TO_RSD_RATE = 108.5  # informativni kurs, uredi po potrebi
@@ -37,6 +37,12 @@ Kako ovo funkcioniše:
 
 Provizija: 2 USDT ( pokriva samo troškove TRON mreže )
 """
+
+# Escrow addresses mapped by network
+ESCROW_ADDRESSES = {
+    "TRC-20": "TD4WyBPqkSfSi4M1vZyvZ8ZquELbRdXRst",
+    "BEP-20": "0x0198Cb1c13AF5988c937eF1ffe7fa376E6Ca465E"
+}
 
 # In-memory dictionaries to store active trades and users
 TRADES = {}
@@ -137,8 +143,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Attach the Accept/Reject buttons to the message
             target_keyboard = [
-                [InlineKeyboardButton("Prihvatiti trgovinu", callback_data="accept_trade")],
-                [InlineKeyboardButton("Otkazati trgovinu", callback_data="reject_trade")],
+                [InlineKeyboardButton("Prihvatiti trgovinu", callback_data=f"accept_trade_{trade_id}")],
+                [InlineKeyboardButton("Otkazati trgovinu", callback_data=f"reject_trade_{trade_id}")],
             ]
             await update.message.reply_text(
                 text2,
@@ -188,24 +194,38 @@ async def ask_amount(update_or_query, context: ContextTypes.DEFAULT_TYPE, networ
     """Puts the user into 'awaiting amount' state and asks for it."""
     context.user_data["awaiting_amount"] = True
     context.user_data["network"] = network_key  # "TRC-20" or "BEP-20"
+    
+    trade_type = context.user_data.get("trade_type", "buy")
+    if trade_type == "buy":
+        text = f"Koliko USDT {network_label} želite da kupite?"
+    else:
+        text = f"Koliko USDT {network_label} prodajete? ( koliko tačno stiže na escrow )"
 
-    await update_or_query.message.reply_text(
-        f"Koliko USDT {network_label} želite da kupite?"
-    )
+    await update_or_query.message.reply_text(text)
 
 
 async def show_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE, amount: int):
     """Shows the buy/pay/receive/fee summary with Nastaviti / Promeniti iznos buttons."""
     network = context.user_data.get("network", "")
     pay_amount = amount + SERVICE_FEE
+    trade_type = context.user_data.get("trade_type", "buy")
 
-    text = (
-        f"Vi kupujete: {amount} USDT\n"
-        f"Prodavac šalje: {pay_amount} USDT\n"
-        f"Vi dobijate: {amount} USDT\n"
-        f"Servisni zbor: {SERVICE_FEE} USDT*\n\n"
-        f"*plaćanje naknade mreže za transfer USDT na vašu adresu"
-    )
+    if trade_type == "buy":
+        text = (
+            f"Vi kupujete: {amount} USDT\n"
+            f"Prodavac šalje: {pay_amount} USDT\n"
+            f"Vi dobijate: {amount} USDT\n"
+            f"Servisni zbor: {SERVICE_FEE} USDT*\n\n"
+            f"*plaćanje naknade mreže za transfer USDT na vašu adresu"
+        )
+    else:
+        text = (
+            f"Vi prodajete: {amount} USDT\n"
+            f"Vi šaljete: {pay_amount} USDT\n"
+            f"Kupac dobija: {amount} USDT\n"
+            f"Servisni zbor: {SERVICE_FEE} USDT*\n\n"
+            f"*plaćanje naknade mreže za transfer USDT na adresu kupca"
+        )
 
     context.user_data["amount"] = amount
 
@@ -330,10 +350,12 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer(cache_time=0)
 
     if query.data == "buy":
+        context.user_data["trade_type"] = "buy"
         await show_network_selection(query, context)
 
     elif query.data == "sell":
-        await query.message.reply_text("Prodaja USDT za RSD")
+        context.user_data["trade_type"] = "sell"
+        await show_network_selection(query, context)
 
     elif query.data == "options":
         await show_additional_options(query, context)
@@ -542,12 +564,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
-    elif query.data == "accept_trade":
-        await query.message.reply_text("✅ Trgovina je prihvaćena! (Demo)")
-
-    elif query.data == "reject_trade":
-        await query.message.reply_text("❌ Trgovina je odbijena. (Demo)")
-
     elif query.data in ["reject_reason_1", "reject_reason_2", "reject_reason_3", "reject_reason_4", "reject_reason_5"]:
         context.user_data.pop("amount", None)
         context.user_data.pop("rsd_amount", None)
@@ -565,6 +581,409 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
+    # --- LOGIKA ZA PRIHVATANJE I ODBIJANJE TRGOVINE OD STRANE KLIJENTA ---
+    
+    elif query.data.startswith("accept_trade_"):
+        trade_id = query.data.split("_")[-1]
+        trade = TRADES.get(trade_id)
+        if not trade:
+            await query.message.reply_text("Greška: Trgovina nije pronađena ili je istekla.")
+            return
+
+        initiator = trade["initiator"]
+        target = trade["target"]
+        amount = trade["amount"]
+        rsd_amount = trade["rsd_amount"]
+        network = trade["network"]
+        pay_amount = trade["pay_amount"]
+        trade_type = trade["type"]
+        title = "Kupovina" if trade_type == "buy" else "Prodaja"
+
+        # 1. Send message to Client B (who just accepted)
+        client_msg = f"Sačekajte potvrdu početka transakcije od {initiator}"
+        await query.message.reply_text(client_msg)
+        
+        # 2. Send message to User A (Initiator) for final confirmation
+        initiator_chat_id = trade.get("initiator_chat_id")
+        if initiator_chat_id:
+            if trade_type == "buy":
+                seller_str = target
+                buyer_str = f"{initiator} (vi)"
+                gets_str = f"{amount} USDT {network}"
+                pays_str = f"{rsd_amount:g} RSD"
+                deposit_msg = f"• Prodavac dobija 60 minuta da unese {pay_amount} USDT na escrow račun\n"
+                transfer_msg = f"• Zatim imate 120 minuta da prenesete {rsd_amount:g} RSD prodavcu\n"
+                final_msg = f"• Nakon potvrde prijema RSD - poslaće vam se {amount} USDT\n"
+            else:
+                seller_str = f"{initiator} (vi)"
+                buyer_str = target
+                gets_str = f"{rsd_amount:g} RSD"
+                pays_str = f"{amount} USDT {network}"
+                deposit_msg = f"• Vi dobijate 60 minuta da unesete {pay_amount} USDT na escrow račun\n"
+                transfer_msg = f"• Zatim kupac ima 120 minuta da vam prenese {rsd_amount:g} RSD\n"
+                final_msg = f"• Nakon potvrde prijema RSD - poslaćete {amount} USDT kupcu\n"
+
+            initiator_msg = (
+                "⚠️ Potvrdite prihvatanje trgovine\n\n"
+                "Da li stvarno želite da prihvatite ovu ponudu?\n\n"
+                "Detalji trgovine:\n"
+                f"🔵 {title} USDT {network}\n"
+                f"👤 Prodavac: {seller_str}\n"
+                f"👤 Kupac: {buyer_str}\n"
+                f"💰 Dobićete: {gets_str}\n"
+                f"💸 Platićete: {pays_str}\n\n"
+                f"ℹ️ Gas fee: {SERVICE_FEE} USDT\n"
+                "(zadržava se od prodavca)\n"
+                f"🔢 Broj trgovine: #{trade_id}\n\n"
+                "⏰ Nakon potvrde:\n"
+                f"{deposit_msg}"
+                f"{transfer_msg}"
+                f"{final_msg}"
+                "• Na svakoj etapi možete kontaktirati administratora\n\n"
+                "❗ Pažnja: Nakon potvrde, trgovina može biti otkazana samo uz obostrani dogovor.\n\n"
+                "Potvrditi i započeti trgovinu?"
+            )
+            keyboard = [
+                [InlineKeyboardButton("✅ Da, prihvatam trgovinu", callback_data=f"start_trade_{trade_id}")],
+                [InlineKeyboardButton("❌ Ne, otkaži", callback_data=f"initiator_cancel_accept_{trade_id}")],
+            ]
+            try:
+                await context.bot.send_message(
+                    chat_id=initiator_chat_id,
+                    text=initiator_msg,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                print(f"Greška pri slanju poruke inicijatoru: {e}")
+
+    elif query.data.startswith("start_trade_"):
+        trade_id = query.data.split("_")[-1]
+        trade = TRADES.get(trade_id)
+        if not trade:
+            await query.message.reply_text("Greška: Trgovina nije pronađena ili je istekla.")
+            return
+
+        initiator = trade["initiator"]
+        target = trade["target"]
+        amount = trade["amount"]
+        rsd_amount = trade["rsd_amount"]
+        network = trade["network"]
+        pay_amount = trade["pay_amount"]
+        trade_type = trade["type"]
+        escrow_addr = ESCROW_ADDRESSES.get(network, "")
+
+        if trade_type == "buy":
+            # Initiator is buyer, Target is seller
+            # Initiator gets waiting message
+            initiator_msg = (
+                "✅ Trgovina započeta!\n\n"
+                "Detalji trgovine:\n"
+                f"🔵 Kupovina USDT {network}\n"
+                f"👤 Prodavac: {target}\n"
+                f"👤 Kupac: {initiator} (vi)\n"
+                f"💰 Dobićete: {amount} USDT {network}\n"
+                f"💸 Platićete: {rsd_amount:g} RSD\n"
+                f"🔢 Broj trgovine: #{trade_id}\n\n"
+                "⏰ Trenutni status:\n"
+                f"Čekamo da prodavac unese {pay_amount} USDT {network} na escrow račun\n\n"
+                "Prodavac ima 60 minuta za prenos.\n\n"
+                "Nakon potvrde dobićete njegove bankovne podatke za plaćanje.\n\n"
+                "🔔 Obavestićemo vas o sledećem koraku"
+            )
+            await query.message.reply_text(
+                initiator_msg,
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🆘 Podrška", callback_data="support")]])
+            )
+
+            # Target gets escrow message
+            target_chat_id = trade.get("target_chat_id")
+            if target_chat_id:
+                target_msg = (
+                    f"✅ Trgovina #{trade_id} prihvaćena!\n\n"
+                    "Detalji trgovine:\n"
+                    f"🔵 Prodaja USDT {network}\n"
+                    f"👤 Prodavac: {target} (vi)\n"
+                    f"👤 Kupac: {initiator}\n"
+                    f"💰 Za prenos: {pay_amount} USDT {network}\n"
+                    f"({amount} + {SERVICE_FEE} provizija)\n"
+                    f"💸 Dobićete: {rsd_amount:g} RSD\n\n"
+                    "⏰ Sledeći korak:\n"
+                    f"Unesite {pay_amount} USDT {network} na escrow račun u roku od 60 minuta\n\n"
+                    "Adresa escrow računa:\n"
+                    f"<code>{escrow_addr}</code>\n\n"
+                    "Nakon potvrde transakcije kupac će dobiti vaše bankovne podatke."
+                )
+                target_keyboard = [
+                    [InlineKeyboardButton("✅ Potvrditi otpremu", callback_data=f"confirm_send_{trade_id}")],
+                    [InlineKeyboardButton("🆘 Podrška", callback_data="support")],
+                    [InlineKeyboardButton("❌ Ne, otkaži", callback_data=f"reject_trade_{trade_id}")]
+                ]
+                try:
+                    await context.bot.send_message(
+                        chat_id=target_chat_id,
+                        text=target_msg,
+                        reply_markup=InlineKeyboardMarkup(target_keyboard),
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    print(f"Greška pri slanju poruke klijentu: {e}")
+        else:
+            # Initiator is seller, Target is buyer
+            # Initiator gets escrow message
+            initiator_msg = (
+                f"✅ Trgovina #{trade_id} prihvaćena!\n\n"
+                "Detalji trgovine:\n"
+                f"🔵 Prodaja USDT {network}\n"
+                f"👤 Prodavac: {initiator} (vi)\n"
+                f"👤 Kupac: {target}\n"
+                f"💰 Za prenos: {pay_amount} USDT {network}\n"
+                f"({amount} + {SERVICE_FEE} provizija)\n"
+                f"💸 Dobićete: {rsd_amount:g} RSD\n\n"
+                "⏰ Sledeći korak:\n"
+                f"Unesite {pay_amount} USDT {network} na escrow račun u roku od 60 minuta\n\n"
+                "Adresa escrow računa:\n"
+                f"<code>{escrow_addr}</code>\n\n"
+                "Nakon potvrde transakcije kupac će dobiti vaše bankovne podatke."
+            )
+            initiator_keyboard = [
+                [InlineKeyboardButton("✅ Potvrditi otpremu", callback_data=f"confirm_send_{trade_id}")],
+                [InlineKeyboardButton("🆘 Podrška", callback_data="support")],
+                [InlineKeyboardButton("❌ Ne, otkaži", callback_data=f"reject_trade_{trade_id}")]
+            ]
+            await query.message.reply_text(
+                initiator_msg,
+                reply_markup=InlineKeyboardMarkup(initiator_keyboard),
+                parse_mode="HTML"
+            )
+
+            # Target gets waiting message
+            target_chat_id = trade.get("target_chat_id")
+            if target_chat_id:
+                target_msg = (
+                    "✅ Trgovina započeta!\n\n"
+                    "Detalji trgovine:\n"
+                    f"🔵 Kupovina USDT {network}\n"
+                    f"👤 Prodavac: {initiator}\n"
+                    f"👤 Kupac: {target} (vi)\n"
+                    f"💰 Dobićete: {amount} USDT {network}\n"
+                    f"💸 Platićete: {rsd_amount:g} RSD\n"
+                    f"🔢 Broj trgovine: #{trade_id}\n\n"
+                    "⏰ Trenutni status:\n"
+                    f"Čekamo da prodavac unese {pay_amount} USDT {network} na escrow račun\n\n"
+                    "Prodavac ima 60 minuta za prenos.\n\n"
+                    "Nakon potvrde dobićete njegove bankovne podatke za plaćanje.\n\n"
+                    "🔔 Obavestićemo vas o sledećem koraku"
+                )
+                try:
+                    await context.bot.send_message(
+                        chat_id=target_chat_id,
+                        text=target_msg,
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🆘 Podrška", callback_data="support")]])
+                    )
+                except Exception as e:
+                    print(f"Greška pri slanju poruke klijentu: {e}")
+
+    elif query.data == "support":
+        await query.message.reply_text("🆘 Za sva pitanja pišite @TetherSrb")
+
+    elif query.data.startswith("confirm_send_"):
+        trade_id = query.data.split("_")[-1]
+        trade = TRADES.get(trade_id)
+        if not trade:
+            await query.message.reply_text("Greška: Trgovina nije pronađena ili je istekla.")
+            return
+            
+        pay_amount = trade["pay_amount"]
+        
+        text = (
+            "🔍 Proveravamo pristizanje sredstava\n\n"
+            f"Trgovina #{trade_id}  \n"
+            f"💰 Očekujemo: {pay_amount} USDT na escrow račun\n\n"
+            "Proveravamo blokčein da li je stiglo. To može potrajati nekoliko minuta.\n\n"
+            "✅ Čim sredstva stignu, dobićete obaveštenje i trgovina će se nastaviti"
+        )
+        keyboard = [
+            [InlineKeyboardButton("🆘 Podrška", callback_data="support")]
+        ]
+        await query.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data.startswith("initiator_cancel_accept_"):
+        trade_id = query.data.split("_")[-1]
+        trade = TRADES.get(trade_id)
+        target = trade.get("target", "@username") if trade else "@username"
+        
+        text = (
+            f"❌ Odbijanje trgovine #{trade_id}\n\n"
+            f"Navedite razlog odbijanja ponude od {target}\n\n"
+            "ℹ️ Prodavac će videti izabrani razlog."
+        )
+        keyboard = [
+            [InlineKeyboardButton("🔴 Više nije aktuelno", callback_data=f"initiator_reject_1_{trade_id}")],
+            [InlineKeyboardButton("💸 Ne odgovaraju uslovi", callback_data=f"initiator_reject_2_{trade_id}")],
+            [InlineKeyboardButton("⏰ Ne odgovara vreme", callback_data=f"initiator_reject_3_{trade_id}")],
+            [InlineKeyboardButton("🔒 Nedovoljno poverenja", callback_data=f"initiator_reject_4_{trade_id}")],
+            [InlineKeyboardButton("❓ Drugi razlog", callback_data=f"initiator_reject_5_{trade_id}")],
+        ]
+        await query.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data.startswith("reject_trade_"):
+        trade_id = query.data.split("_")[-1]
+        trade = TRADES.get(trade_id)
+        initiator = trade["initiator"] if trade else "@username"
+        
+        text = (
+            f"❌ Odbijanje trgovine #{trade_id}\n\n"
+            f"Navedite razlog odbijanja ponude od {initiator}\n\n"
+            "ℹ️ Prodavac će videti izabrani razlog."
+        )
+        keyboard = [
+            [InlineKeyboardButton("🔴 Više nije aktuelno", callback_data=f"client_reject_1_{trade_id}")],
+            [InlineKeyboardButton("💸 Ne odgovaraju uslovi", callback_data=f"client_reject_2_{trade_id}")],
+            [InlineKeyboardButton("⏰ Ne odgovara vreme", callback_data=f"client_reject_3_{trade_id}")],
+            [InlineKeyboardButton("🔒 Nedovoljno poverenja", callback_data=f"client_reject_4_{trade_id}")],
+            [InlineKeyboardButton("❓ Drugi razlog", callback_data=f"client_reject_5_{trade_id}")],
+        ]
+        await query.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data.startswith("client_reject_"):
+        parts = query.data.split("_")
+        reason_num = parts[2]
+        trade_id = parts[3]
+        
+        reasons = {
+            "1": "🔴 Više nije aktuelno",
+            "2": "💸 Ne odgovaraju uslovi",
+            "3": "⏰ Ne odgovara vreme",
+            "4": "🔒 Nedovoljno poverenja",
+            "5": "❓ Drugi razlog"
+        }
+        reason_text = reasons.get(reason_num, "Nepoznat razlog")
+        
+        trade = TRADES.get(trade_id)
+        if not trade:
+            await query.message.reply_text("Greška: Trgovina nije pronađena ili je istekla.")
+            return
+            
+        client_username = update.effective_user.username
+        client_str = f"@{client_username}" if client_username else "[vaš_username]"
+        
+        # 1. Send message to client
+        client_msg = f"✅ Ponuda #{trade_id} je odbačena\n\nŽelite li da kreirate svoj oglas?"
+        keyboard = [
+            [InlineKeyboardButton("🟢 Kupovina USDT za RSD", callback_data="buy")],
+            [InlineKeyboardButton("🔵 Prodaja USDT za RSD", callback_data="sell")],
+            [InlineKeyboardButton("📋 Dodatne opcije", callback_data="options")],
+        ]
+        await query.message.reply_text(
+            client_msg,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        # 2. Send message to initiator
+        initiator_chat_id = trade.get("initiator_chat_id")
+        if initiator_chat_id:
+            initiator_msg = (
+                "❌ Vaša ponuda je odbačena\n\n"
+                f"Korisnik {client_str} odbio je trgovinu #{trade_id}\n"
+                f"Razlog: {reason_text}\n\n"
+                "Oglas više nije važeći.\n\n"
+                "Želite li da napravite novu trgovinu?"
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=initiator_chat_id,
+                    text=initiator_msg,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                print(f"Greška pri slanju poruke inicijatoru: {e}")
+
+    # --- LOGIKA ZA OTKAZIVANJE TRGOVINE OD STRANE INICIJATORA (REVERSE) ---
+
+    elif query.data.startswith("initiator_cancel_"):
+        trade_id = query.data.split("_")[-1]
+        trade = TRADES.get(trade_id)
+        target = trade.get("target", "@username") if trade else "@username"
+        
+        text = (
+            f"❌ Odbijanje trgovine #{trade_id}\n\n"
+            f"Navedite razlog odbijanja ponude od {target}\n\n"
+            "ℹ️ Prodavac će videti izabrani razlog."
+        )
+        keyboard = [
+            [InlineKeyboardButton("🔴 Više nije aktuelno", callback_data=f"initiator_reject_1_{trade_id}")],
+            [InlineKeyboardButton("💸 Ne odgovaraju uslovi", callback_data=f"initiator_reject_2_{trade_id}")],
+            [InlineKeyboardButton("⏰ Ne odgovara vreme", callback_data=f"initiator_reject_3_{trade_id}")],
+            [InlineKeyboardButton("🔒 Nedovoljno poverenja", callback_data=f"initiator_reject_4_{trade_id}")],
+            [InlineKeyboardButton("❓ Drugi razlog", callback_data=f"initiator_reject_5_{trade_id}")],
+        ]
+        await query.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif query.data.startswith("initiator_reject_"):
+        parts = query.data.split("_")
+        reason_num = parts[2]
+        trade_id = parts[3]
+        
+        reasons = {
+            "1": "🔴 Više nije aktuelno",
+            "2": "💸 Ne odgovaraju uslovi",
+            "3": "⏰ Ne odgovara vreme",
+            "4": "🔒 Nedovoljno poverenja",
+            "5": "❓ Drugi razlog"
+        }
+        reason_text = reasons.get(reason_num, "Nepoznat razlog")
+        
+        trade = TRADES.get(trade_id)
+        if not trade:
+            await query.message.reply_text("Greška: Trgovina nije pronađena ili je istekla.")
+            return
+            
+        initiator_username = update.effective_user.username
+        initiator_str = f"@{initiator_username}" if initiator_username else "[vaš_username]"
+        
+        # 1. Send message to initiator (who is canceling)
+        initiator_msg = f"✅ Ponuda #{trade_id} je odbačena\n\nŽelite li da kreirate svoj oglas?"
+        keyboard = [
+            [InlineKeyboardButton("🟢 Kupovina USDT za RSD", callback_data="buy")],
+            [InlineKeyboardButton("🔵 Prodaja USDT za RSD", callback_data="sell")],
+            [InlineKeyboardButton("📋 Dodatne opcije", callback_data="options")],
+        ]
+        await query.message.reply_text(
+            initiator_msg,
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+        # 2. Send message to client (target user)
+        target_chat_id = trade.get("target_chat_id")
+        if target_chat_id:
+            target_msg = (
+                "❌ Vaša ponuda je odbačena\n\n"
+                f"Korisnik {initiator_str} odbio je trgovinu #{trade_id}\n"
+                f"Razlog: {reason_text}\n\n"
+                "Oglas više nije važeći.\n\n"
+                "Želite li da napravite novu trgovinu?"
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=target_chat_id,
+                    text=target_msg,
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                print(f"Greška pri slanju poruke klijentu: {e}")
+
     elif query.data == "execute_trade":
         target_user = context.user_data.get("target_username", "@username")
         initiator_username = update.effective_user.username
@@ -574,16 +993,22 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rsd_amount = context.user_data.get("rsd_amount", 0)
         network = context.user_data.get("network", "TRC-20")
         pay_amount = amount + SERVICE_FEE
-        trade_type = "buy"  # default since we came from the buy flow
+        trade_type = context.user_data.get("trade_type", "buy")
 
         # Generate a random 5-digit trade ID
         trade_id = f"D{random.randint(10000, 99999)}"
         context.user_data["trade_id"] = trade_id
+        
+        # Fetch target's chat ID if they exist in DB
+        target_username_clean = target_user.lstrip('@').lower()
+        target_chat_id = USER_DATABASE.get(target_username_clean)
 
         # Save trade details so the target user can retrieve them via deep link
         TRADES[trade_id] = {
             "initiator": initiator_str,
+            "initiator_chat_id": update.effective_chat.id,
             "target": target_user,
+            "target_chat_id": target_chat_id,
             "amount": amount,
             "rsd_amount": rsd_amount,
             "network": network,
@@ -602,16 +1027,27 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(text1)
 
         # 2nd text to initiator
-        text2 = (
-            f"🔵 Trgovina USDT ⇄ RSD\n"
-            f"👤 Prodavac: {target_user}\n"  # Target is the seller of USDT
-            f"👤 Kupac: {initiator_str}\n"   # Initiator is the buyer of USDT
-            f"🔢 Broj trgovine: #{trade_id}\n\n"
-            f"💰 Prodaje se: {pay_amount} USDT → {amount} USDT ({network})(nakon provizije)\n"
-            f"💸 Cena: {rsd_amount:g} RSD"
-        )
+        if trade_type == "buy":
+            text2 = (
+                f"🔵 Trgovina USDT ⇄ RSD\n"
+                f"👤 Prodavac: {target_user}\n"
+                f"👤 Kupac: {initiator_str}\n"
+                f"🔢 Broj trgovine: #{trade_id}\n\n"
+                f"💰 Prodaje se: {pay_amount} USDT → {amount} USDT ({network})(nakon provizije)\n"
+                f"💸 Cena: {rsd_amount:g} RSD"
+            )
+        else:
+            text2 = (
+                f"🔵 Trgovina USDT ⇄ RSD\n"
+                f"👤 Prodavac: {initiator_str}\n"
+                f"👤 Kupac: {target_user}\n"
+                f"🔢 Broj trgovine: #{trade_id}\n\n"
+                f"💰 Prodaje se: {pay_amount} USDT → {amount} USDT ({network})(nakon provizije)\n"
+                f"💸 Cena: {rsd_amount:g} RSD"
+            )
+
         keyboard = [
-            [InlineKeyboardButton("Otkazati trgovinu", callback_data="cancel_trade_entirely")]
+            [InlineKeyboardButton("Otkazati trgovinu", callback_data=f"initiator_cancel_{trade_id}")]
         ]
         await query.message.reply_text(
             text2,
@@ -619,9 +1055,6 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # --- AUTOMATSKO SLANJE PORUKE KLIJENTU (TARGET USER) ---
-        target_username_clean = target_user.lstrip('@').lower()
-        target_chat_id = USER_DATABASE.get(target_username_clean)
-
         if target_chat_id:
             try:
                 # Send 1st message to target
@@ -629,18 +1062,29 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=target_chat_id, text=target_text1)
 
                 # Send 2nd message to target
-                target_text2 = (
-                    f"🔵 Kupovina USDT {network}\n"
-                    f"👤 Prodavac: {target_user} (vi)\n"
-                    f"👤 Kupac: {initiator_str} (kupuje {amount} USDT {network})\n"
-                    f"💰 Dobićete: {rsd_amount:g} RSD\n"
-                    f"💸 Platićete: {pay_amount} USDT {network}\n"
-                    f"ℹ️ Gas fee: {SERVICE_FEE} USDT (zadržava se od USDT za pokrivanje troškova mreže)\n\n"
-                    f"⏰ Ponuda važi 30 minuta"
-                )
+                if trade_type == "buy":
+                    target_text2 = (
+                        f"🔵 Kupovina USDT {network}\n"
+                        f"👤 Prodavac: {target_user} (vi)\n"
+                        f"👤 Kupac: {initiator_str} (kupuje {amount} USDT {network})\n"
+                        f"💰 Dobićete: {rsd_amount:g} RSD\n"
+                        f"💸 Platićete: {pay_amount} USDT {network}\n"
+                        f"ℹ️ Gas fee: {SERVICE_FEE} USDT (zadržava se od USDT za pokrivanje troškova mreže)\n\n"
+                        f"⏰ Ponuda važi 30 minuta"
+                    )
+                else:
+                    target_text2 = (
+                        f"🔵 Prodaja USDT {network}\n"
+                        f"👤 Prodavac: {initiator_str}\n"
+                        f"👤 Kupac: {target_user} (vi) (kupuje {amount} USDT {network})\n"
+                        f"💰 Dobićete: {amount} USDT {network}\n"
+                        f"💸 Platićete: {rsd_amount:g} RSD\n"
+                        f"ℹ️ Gas fee: {SERVICE_FEE} USDT (zadržava se od USDT za pokrivanje troškova mreže)\n\n"
+                        f"⏰ Ponuda važi 30 minuta"
+                    )
                 target_keyboard = [
-                    [InlineKeyboardButton("Prihvatiti trgovinu", callback_data="accept_trade")],
-                    [InlineKeyboardButton("Otkazati trgovinu", callback_data="reject_trade")],
+                    [InlineKeyboardButton("Prihvatiti trgovinu", callback_data=f"accept_trade_{trade_id}")],
+                    [InlineKeyboardButton("Otkazati trgovinu", callback_data=f"reject_trade_{trade_id}")],
                 ]
                 await context.bot.send_message(
                     chat_id=target_chat_id, 
@@ -738,12 +1182,20 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             usdt_amount = context.user_data.get("amount", 0)
             rsd_amount = context.user_data.get("rsd_amount", 0)
+            trade_type = context.user_data.get("trade_type", "buy")
 
-            summary_text = (
-                f"⚪ Vaš oglas je spreman. Proverite detalje pre kreiranja trgovine:\n\n "
-                f"Vi ({our_username_str}) prodajete {rsd_amount:g} RSD za {usdt_amount} USDT korisniku {text}. "
-                f"Dobićete {usdt_amount} USDT TRC-20 zbog naknade mreže."
-            )
+            if trade_type == "buy":
+                summary_text = (
+                    f"⚪ Vaš oglas je spreman. Proverite detalje pre kreiranja trgovine:\n\n "
+                    f"Vi ({our_username_str}) kupujete {usdt_amount} USDT za {rsd_amount:g} RSD od korisnika {text}. "
+                    f"Platićete {rsd_amount:g} RSD i dobićete {usdt_amount} USDT."
+                )
+            else:
+                summary_text = (
+                    f"⚪ Vaš oglas je spreman. Proverite detalje pre kreiranja trgovine:\n\n "
+                    f"Vi ({our_username_str}) prodajete {usdt_amount} USDT za {rsd_amount:g} RSD korisniku {text}. "
+                    f"Dobićete {rsd_amount:g} RSD, a on dobija {usdt_amount} USDT."
+                )
 
             keyboard = [
                 [InlineKeyboardButton("Kreirati trgovinu", callback_data="create_trade")],
