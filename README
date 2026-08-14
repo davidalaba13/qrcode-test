@@ -574,8 +574,7 @@ This is where the real work happens. Each modification below corresponds to a fe
 
 What to build: A template storage and rendering system that stores 250+ pre-built templates, each with variable interpolation.
 
-File structure to create:
-postal/app/lib/postal/templates/
+File structure to create, e.g:
   ├── google/
   │   ├── employee_verification.erb
   │   ├── password_reset.erb
