@@ -1,4 +1,440 @@
 Ultimate Mailer Build Guide — Postal-Based, 2025 Modern Stack
+
+UI DESIGN SPECIFICATION — POSTAL MAILER WEB PANEL
+
+GENERAL AESTHETIC AND THEME
+
+Build a modern dark-themed web panel using a deep purple color palette. The overall look should feel premium, sleek, and polished, similar to top-tier SaaS platforms or modern Discord-style interfaces but more refined.
+
+Color palette:
+
+     Background: deep charcoal black (#0a0a0f) with subtle purple tint
+     Sidebar background: slightly lighter charcoal (#12121a) with a faint purple glow on the active button
+     Primary accent: vivid purple (#8b5cf6) for buttons, active states, highlights
+     Secondary accent: softer lavender (#a78bfa) for hover effects and secondary buttons
+     Text: off-white (#e4e4e7) for primary text, muted gray (#71717a) for secondary text and labels
+     Success: green (#22c55e) for delivery confirmations and positive stats
+     Warning: amber (#f59e0b) for bounce alerts and reputation warnings
+     Error: red (#ef4444) for failures and critical alerts
+     Cards and panels: dark purple-tinted gray (#1a1a2e) with subtle 1px border (#2a2a3e)
+     Inputs and form fields: dark (#16161e) with purple focus border glow (#8b5cf6 at 50% opacity)
+
+Visual effects:
+
+     Glassmorphism on cards and panels with subtle backdrop blur (blur 10px, background opacity 0.7)
+     Smooth transitions on all interactive elements (200ms ease)
+     Hover effects: buttons lift slightly (translateY -2px), glow with purple shadow (0 0 20px rgba(139,92,246,0.3))
+     Active sidebar button: gradient purple background (linear-gradient 135deg from #8b5cf6 to #7c3aed), subtle inner glow
+     Sidebar buttons have a left accent bar that lights up purple when active or hovered
+     Loading states use a purple spinner or pulsing dot animation
+     Page transitions: fade in with slight slide (150ms)
+     Scrollbars: thin, dark track with purple thumb
+     Toggle switches: purple when ON, dark gray when OFF, smooth slide animation
+     Dropdowns: open with fade and slight scale-up animation, dark background with purple hover on items
+     Modals: fade in with backdrop blur, scale from 0.95 to 1.0
+
+Typography:
+
+     Primary font: Inter or similar modern sans-serif
+     Monospace for technical values: email addresses, IDs, SMTP details (JetBrains Mono or similar)
+     Headings: semibold, slightly larger letter spacing on section titles
+     Body text: regular weight, 14px base size
+     Small labels and metadata: 12px, muted gray
+
+LAYOUT STRUCTURE
+
+The panel uses a fixed left sidebar and a main content area that fills the remaining space. The sidebar is 260px wide, collapsible to 60px (icon-only mode) with a toggle button at the top. The main content area has a top bar (56px height) and the content scroll area below.
+
+Top bar contains:
+
+     Page title on the left (changes based on active section)
+     Global search bar in the center (search templates, profiles, recipients, history)
+     User avatar and dropdown on the right (profile, settings, logout)
+     A small notification bell with badge count for alerts
+
+SIDEBAR BUTTONS AND THEIR EXPANDED OPTIONS
+
+Below are the sidebar navigation buttons. Each button shows an icon and label. When clicked, the main content area displays the options and interface for that section.
+
+BUTTON 1: DASHBOARD
+
+Icon: grid/gauge icon
+Label: "Dashboard"
+
+Main content shows:
+
+     Top row of stat cards: Total Sent, Delivery Rate, Bounce Rate, Complaint Rate, Open Rate, Click Rate
+     Each stat card shows current value, trend arrow (up/down), and percentage change from yesterday
+     Below stats: a large area chart showing send volume and delivery rate over time (7 day, 30 day, 90 day selectable)
+     Side panel: reputation score card showing Google Postmaster status, Microsoft SNDS status, SenderScore, and any active blocklist listings with color-coded status indicators
+     Bottom section: recent activity feed showing latest sends, bounces, complaints in a scrolling list with timestamps
+     Quick actions row: "Quick Send" button, "New Campaign" button, "View Reports" button
+
+BUTTON 2: COMPOSE
+
+Icon: pencil/edit icon
+Label: "Compose"
+
+This is the main sending interface. This is the most important screen. Layout is split into three panels side by side.
+
+LEFT PANEL: CONFIGURATION (40% width)
+
+Section: Recipient
+
+     Single recipient input field (email address with validation)
+     "Add to bulk" button to add current email to bulk list
+     Bulk recipient textarea (one email per line) with live count display
+     CSV upload button for importing recipient lists
+     Suppression list check indicator (shows "X recipients will be skipped due to suppression list")
+     Recipient name auto-detect toggle (extract name from email address, ON by default)
+
+Section: Template Selection
+
+     Dropdown of all available templates grouped by service (Google, Coinbase, Microsoft, etc.)
+     Search bar above dropdown to filter templates
+     When template is selected: show template info card with category, last used, send count, delivery rate for that template
+     "Load template" button
+
+Section: Value Profile
+
+     Dropdown of saved value profiles
+     "Create new profile" button that opens inline form
+     When profile is selected: show preview of all values that will be used (sender name, sender email, reply-to, case ID, URL, custom values)
+     "Edit profile" button to modify selected profile inline
+
+Section: Sending Configuration
+
+     SMTP Server Selection dropdown (options: Auto-Rotate (Default), or specific SMTP server from pool)
+     When Auto-Rotate is selected: show current pool status (X active servers, Y on cooldown, Z dead)
+     Sending Priority dropdown: Normal, High
+     Schedule send toggle (OFF by default, when ON show datetime picker and timezone selector)
+     Send window enforcement toggle (ON by default, shows configured window e.g. "8am - 8pm target timezone")
+
+Section: Advanced Options (collapsible, expanded by default)
+
+     Subject Line field with "Auto-Rotate" toggle (ON by default, when ON shows count of available subject variants and previews the currently selected one, when OFF shows manual subject input)
+     Content Uniquification toggle (ON by default) with expandable sub-options:
+         Whitespace randomization (ON by default)
+         Greeting rotation (ON by default)
+         Signature rotation (ON by default)
+         Paragraph reordering (ON by default)
+         Synonym substitution (ON by default)
+         HTML structure variation (ON by default)
+         Invisible HTML comments (ON by default)
+         Plain text alternative generation (ON by default)
+     Header Management toggle (ON by default) with expandable sub-options:
+         Standard headers list (read-only, shows all headers that will be applied)
+         Custom headers editor (add/remove arbitrary X- headers)
+         Authentication alignment verification (ON by default, shows green checkmark when aligned, red warning if not)
+     DKIM Signing (ON by default, shows signing domain and key selector)
+     TLS Enforcement (ON by default, cannot be turned off)
+     List-Unsubscribe Header (ON by default)
+     Tracking toggle: Open tracking (OFF by default due to Apple MPP), Click tracking (ON by default)
+     Bounce handling (ON by default, cannot be turned off)
+     Suppression list check (ON by default, cannot be turned off)
+     Pre-send validation (ON by default, shows checklist of all quality checks with pass/fail status)
+
+Section: Spoofing Configuration
+
+     Spoofing toggle (ON by default for maximum inbox impact)
+     When ON, show configuration fields:
+         From Name input (e.g., "Google Security")
+         From Email input (e.g., "noreply@google.com")
+         Reply-To input (where replies actually go, defaults to bounce address)
+         Return-Path input (defaults to bounce at sending domain)
+         Message-ID domain input (defaults to spoofed domain)
+         Custom X-headers section (add/remove custom headers with key-value pairs)
+         Warning indicator showing alignment status (green if Return-Path aligns with sending domain for SPF, yellow if misaligned)
+         "Use lookalike domain" helper button that suggests similar domains based on the spoofed target
+
+MIDDLE PANEL: PREVIEW (60% width, RESIZABLE)
+
+This panel shows a live preview of the email that will be sent. The divider between the configuration panel and preview panel is draggable, allowing the user to resize the preview area.
+
+Preview features:
+
+     Tab bar at top with three tabs: "Desktop View", "Mobile View", "Source Code"
+     Desktop View: renders the HTML email as it would appear in a desktop email client (Gmail-style rendering)
+     Mobile View: renders in a narrow container (375px) simulating mobile email client
+     Source Code: shows the raw HTML and plain text alternative with syntax highlighting
+     Above the preview: subject line display (shows the auto-selected or manual subject), From display (shows "From Name from@email.com"), and a spam score indicator (0-10 scale with color: green 0-3, yellow 4-6, red 7-10)
+     Preview automatically updates when any configuration option changes
+     "Refresh preview" button to force re-render (useful when content uniquification is on, regenerates with new randomization)
+     "Send test to self" button that sends the preview email to the logged-in user's email address
+     Zoom controls (50%, 75%, 100%, 125%) for the preview
+     Dark mode and light mode toggle for the preview (simulates how email looks in both)
+
+RIGHT PANEL: SEND ACTIONS (fixed width, 200px)
+
+     Large purple "SEND" button at top (full width, prominent, with hover glow effect)
+     Below send button: "Schedule" button (secondary style)
+     Below schedule: "Save as Draft" button
+     Below draft: "Save as Quick-Send Profile" button (saves current configuration as a reusable profile)
+     Estimated send stats: shows estimated time to complete (based on SMTP pool capacity), estimated delivery rate
+     Pre-send checklist: compact list showing all validation checks with green checkmarks or red x marks
+     If any check fails: SEND button is disabled and the failing check is highlighted in red with an explanation
+
+BUTTON 3: QUICK SEND
+
+Icon: lightning bolt icon
+Label: "Quick Send"
+
+Main content shows:
+
+     Grid of quick-send profile cards, each showing: profile name, associated template, last used date, send count, delivery rate
+     Each card has a "Send" button that opens a compact modal: recipient email input, send button, cancel button
+     "Create New Quick-Send Profile" button at top
+     Search bar to filter profiles
+     Sort options: by name, by last used, by send count, by delivery rate
+
+BUTTON 4: TEMPLATES
+
+Icon: document/layout icon
+Label: "Templates"
+
+Main content shows:
+
+     Grid or list view of all templates (toggle between grid/list view)
+     Each template card shows: template name, service badge (colored by service), category, subject variant count, last modified, delivery rate, active toggle
+     Search bar with filters: by service, by category, by status (active/inactive)
+     "Create Template" button
+     "Import Templates" button (JSON upload)
+     "Export All" button
+     When clicking a template: opens template editor in a modal or full page:
+         Template name field
+         Service dropdown
+         Category dropdown
+         Subject variants editor (list of subject lines, add/remove/reorder)
+         HTML body editor with code view and visual editor toggle
+         Plain text body editor
+         Variable configuration (list of variables used, required/optional, default values)
+         Default From Name, From Email, Reply-To
+         Custom default headers
+         Live preview pane on the right side (resizable)
+         Save, Duplicate, Delete buttons
+
+BUTTON 5: PROFILES
+
+Icon: user/settings icon
+Label: "Profiles"
+
+Main content shows two tabs: "Value Profiles" and "Quick-Send Profiles"
+
+Value Profiles tab:
+
+     Table of all value profiles: name, sender name, sender email, associated template (if any), last used, actions (edit, duplicate, delete)
+     "Create Value Profile" button
+     Search and filter
+
+Quick-Send Profiles tab:
+
+     Table of all quick-send profiles: name, associated template, associated value profile, SMTP server (or Auto-Rotate), last used, send count, delivery rate, actions (edit, duplicate, delete, send now)
+     "Create Quick-Send Profile" button
+
+BUTTON 6: SMTP POOL
+
+Icon: server icon
+Label: "SMTP Pool"
+
+Main content shows:
+
+     Top row: pool overview stats (total servers, active, on cooldown, dead, total capacity per hour)
+     "Add SMTP Server" button
+     Table of all SMTP servers with columns: name, host, port, TLS status, reputation tier (color-coded badge), status (color-coded: green active, yellow cooldown, red dead), current hour sends / max, current day sends / max, total sends, bounce rate, complaint rate, last used, actions (edit, pause, test connection, delete)
+     Click on a server: opens detail panel showing full stats, send history chart, recent errors, reputation timeline
+     "Test All Connections" button that pings every server and reports status
+     Bulk actions: pause selected, resume selected, set cooldown, delete selected
+
+BUTTON 7: RECIPIENTS
+
+Icon: users icon
+Label: "Recipients"
+
+Main content shows tabs: "Lead Lists", "Suppression List", "Seed Accounts"
+
+Lead Lists tab:
+
+     List of imported recipient lists with name, count, date added, last used, delivery rate
+     "Import List" button (CSV upload with column mapping: email, name, timezone)
+     "Create List" button (manual entry)
+     Export list button
+     Search and filter within lists
+
+Suppression List tab:
+
+     Table of suppressed addresses: email, reason (hard bounce, spam complaint, manual), date added, source
+     "Add to Suppression" manual input
+     "Import Suppression List" button (CSV)
+     "Export Suppression List" button
+     Search and filter
+
+Seed Accounts tab:
+
+     List of seed accounts: email, provider (Gmail, Outlook, Yahoo, Apple, ProtonMail), status, last engagement, open rate, reply rate
+     "Add Seed Account" button
+     Seed engagement automation settings: auto-open toggle, auto-mark-important toggle, auto-reply toggle (with reply probability slider)
+     "Run Seed Engagement Now" button
+
+BUTTON 8: ANALYTICS
+
+Icon: chart icon
+Label: "Analytics"
+
+Main content shows:
+
+     Date range selector (today, 7 days, 30 days, 90 days, custom range)
+     Overview cards: total sent, delivered, bounced, complaints, opens, clicks with rates
+     Charts section:
+         Send volume over time (area chart)
+         Delivery rate over time (line chart)
+         Bounce rate over time (line chart)
+         Engagement over time (open rate and click rate, dual line chart)
+     Breakdown tables:
+         Per-domain performance (domain, sends, delivery rate, bounce rate, complaint rate, open rate, click rate)
+         Per-SMTP performance (server name, sends, delivery rate, bounce rate, complaint rate, status)
+         Per-template performance (template, sends, delivery rate, bounce rate, complaint rate, open rate, click rate)
+         Bounce reason analysis (SMTP code, description, count, percentage)
+     "Export Report" button (CSV or PDF)
+
+BUTTON 9: REPUTATION
+
+Icon: shield icon
+Label: "Reputation"
+
+Main content shows:
+
+     Google Postmaster Tools card: domain reputation (High/Medium/Low with color), IP reputation, spam rate, delivery errors, authentication rate, last updated. Trend chart over 30 days.
+     Microsoft SNDS card: filter result (Green/Yellow/Red), complaint rate, trap hits, data volume, last updated. Trend chart.
+     SenderScore card: score (0-100), last updated, trend.
+     Blocklist status table: blocklist name, IP/domain checked, status (Clean/Listed), last checked, action (delisting link if listed)
+     BIMI status indicator
+     DMARC report summary: aggregate report data showing SPF pass rate, DKIM pass rate, DMARC pass rate, sources of failure
+     Alert configuration: thresholds for reputation drops, complaint rates, blocklist listings
+
+BUTTON 10: WARMUP
+
+Icon: thermometer/trending-up icon
+Label: "Warmup"
+
+Main content shows:
+
+     Active warmup campaigns list: domain, current day in schedule, today's limit, today's sent, progress bar, status (active/paused/completed)
+     "Start Warmup" button (select domain, choose schedule template or custom)
+     Warmup schedule visualization: chart showing planned volume over 21 days with actual sends overlaid
+     Per-domain warmup details: sends by day, seed ratio, real ratio, bounce rate during warmup, reputation changes
+     Pause/resume warmup controls
+     Warmup settings: auto-pause thresholds, seed ratio targets, sending window, timezone
+
+BUTTON 11: TEAM
+
+Icon: people icon
+Label: "Team"
+
+Main content shows:
+
+     Team members table: name, email, role (Admin/Sender/Viewer badge), status (active/inactive), last login, sends today, sends total, actions (edit role, deactivate, delete)
+     "Invite Member" button (sends email invite)
+     Activity log: chronological list of team actions (who sent what, who changed settings, who added SMTP, etc.)
+     Per-user statistics: sends, delivery rate, bounce rate, complaint rate
+
+BUTTON 12: SETTINGS
+
+Icon: gear icon
+Label: "Settings"
+
+Main content shows tabs:
+
+General tab:
+
+     Panel name
+     Default timezone
+     Default sending window (start and end time)
+     Default language
+     Dark/light mode toggle (defaults to dark)
+
+Sending Defaults tab:
+
+     Content Uniquification: all sub-toggles with default states (all ON by default)
+     Header Management: default header configuration
+     DKIM: default signing settings
+     TLS: enforcement (ON, locked)
+     Tracking: default open tracking (OFF), default click tracking (ON)
+     Bounce handling (ON, locked)
+     Suppression list (ON, locked)
+     Pre-send validation: all checks with default states
+     Spoofing: default toggle state (ON), default configuration values
+     Subject rotation: default (ON)
+     Auto-rotate SMTP (ON)
+
+Notifications tab:
+
+     Alert thresholds: bounce rate, complaint rate, reputation drop, blocklist
+     Notification channels: web panel (ON), email (ON with address field), webhook (OFF with URL field), Telegram (OFF with bot token and chat ID), Discord (OFF with webhook URL)
+
+API tab:
+
+     API key management: create, list, revoke API keys
+     API documentation link
+     Rate limiting configuration
+
+Backups tab:
+
+     Database backup schedule
+     Export configuration button
+     Import configuration button
+
+DEFAULT SETTINGS SUMMARY
+
+The following settings must be enabled by default when a new user opens the Compose screen for the first time. These represent the optimal configuration for maximum inbox delivery:
+
+ON by default (cannot be turned off):
+
+     TLS enforcement
+     DKIM signing
+     Bounce handling
+     Suppression list checking
+     Authentication alignment verification
+     Pre-send validation
+
+ON by default (can be turned off):
+
+     Content Uniquification (all sub-options)
+     Header Management (all standard headers)
+     Subject line auto-rotation
+     Plain text alternative generation
+     List-Unsubscribe header
+     Click tracking
+     Send window enforcement
+     Spoofing toggle
+     Auto-rotate SMTP server selection
+     Recipient name auto-detect
+     Content quality checks (all)
+
+OFF by default:
+
+     Open tracking (due to Apple Mail Privacy Protection unreliability)
+     Schedule send (immediate send by default)
+
+INTERACTION PATTERNS
+
+Drag to resize: the divider between configuration panel and preview panel in the Compose screen is draggable. Show a visual indicator (two vertical lines or dots) on hover. Minimum preview width 300px, maximum 80% of screen width.
+
+Hover effects: all buttons have a subtle purple glow on hover (box-shadow 0 0 20px rgba(139,92,246,0.3)). Sidebar buttons additionally show a left accent bar that slides in from the left on hover.
+
+Loading states: when data is being fetched or an email is being sent, show a purple pulsing loader. Send button shows "Sending..." with spinner, then transitions to "Sent" with green checkmark for 2 seconds before resetting.
+
+Toast notifications: appear in the bottom right corner, slide in from the right, auto-dismiss after 5 seconds. Types: success (green left border), warning (amber left border), error (red left border), info (purple left border).
+
+Confirmation modals: for destructive actions (delete, pause SMTP, stop warmup), show a centered modal with backdrop blur, action description, cancel and confirm buttons.
+
+Form validation: inline validation on all input fields. Invalid fields show red border with error message below. Email address fields validate format on blur.
+
+Keyboard shortcuts: Ctrl+Enter to send from Compose screen, Ctrl+S to save draft, Escape to close modals.
+
+Empty states: when no data exists (no templates, no profiles, no SMTP servers), show a friendly empty state with an icon, description, and a "Create" button.
+
+Responsive behavior: the panel is optimized for desktop (1280px+). On smaller screens, the sidebar collapses to icons only, and the Compose screen stacks vertically (configuration on top, preview below).
+
 1. THE LANDSCAPE — What the Best Mailers Are Doing Right Now
 
 The scene has shifted hard in the last 18 months. Google and Microsoft cracked down on bulk sender requirements (February 2024 Google enforcement, DMARC quarantine by default). The mailers still hitting inbox consistently are doing these things:
