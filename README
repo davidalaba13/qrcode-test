@@ -1,5 +1,138 @@
 Ultimate Mailer Build Guide — Postal-Based, 2025 Modern Stack
 
+1. THE LANDSCAPE — What the Best Mailers Are Doing Right Now
+
+The scene has shifted hard in the last 18 months. Google and Microsoft cracked down on bulk sender requirements (February 2024 Google enforcement, DMARC quarantine by default). The mailers still hitting inbox consistently are doing these things:
+
+Domain Infrastructure Layer:
+
+     Aged domains (90+ days minimum, 6+ months ideal) with gradual reputation building
+     Full DNS stack per domain: SPF, DKIM (2048-bit keys minimum), DMARC (starting at p=none during warmup, moving to p=quarantine), MTA-STS, TLS-RPT, and BIMI records where possible
+     Subdomain isolation strategy — sending from subdomains so root domain reputation stays clean
+     1 domain per 3-5 SMTP IPs, rotating every 2-3 weeks depending on volume
+
+Sending Infrastructure Layer:
+
+     Distributed SMTP pools (not single high-volume blasts) — "snowshoe" sending pattern
+     IP warming protocols: Day 1 = 50 sends, Day 2 = 100, Day 3 = 200, doubling every 2 days until target volume
+     TLS enforced on all SMTP connections
+     SMTP rotation every N sends (configurable, usually 50-100 per SMTP before rotating)
+     Separate IP pools by reputation tier (fresh IPs vs warmed IPs vs high-reputation IPs)
+
+Content & Template Layer:
+
+     Per-email uniqueness through content spinning (variable greetings, signatures, whitespace randomization, invisible character injection)
+     Subject line rotation pools (minimum 15-20 variants per template)
+     Proper text-to-HTML ratio (minimum 40% text, avoid image-heavy emails)
+     No tracked pixels or external images that trigger proxy fetches
+     DKIM-signed with proper alignment to visible From header
+
+Bypassing Modern Filters (2024-2025):
+
+     Google Postmaster Tools monitoring — watch domain reputation score, keep above 50
+     Microsoft SNDS (Smart Network Data Services) monitoring
+     Apple Mail Privacy Protection consideration — open rates are now unreliable, focus on click/delivery metrics
+     BIMI (Brand Indicators for Message Identification) — having a VMC (Verified Mark Certificate) dramatically increases inbox placement on Gmail/Apple Mail
+     ARC chain preservation for forwarded scenarios
+     Avoiding spam trigger word combinations, maintaining Flesch reading score between 40-60
+
+SMTP Acquisition Methods (what top operators use):
+Method
+	
+Description
+	
+Notes
+Self-hosted Postfix/Exim	Full control, own IPs, own reputation	Best for long-term, requires IP warming
+Hijacked legit SMTP access	Microsoft 365 accounts with compromised MFA, SMTP AUTH enabled	Highest reputation, burns fast, rotate constantly
+Purchased SMTP access	Bulk SMTP sellers on forums/marketplaces	Quality varies wildly, test before bulk use
+Postal cluster	Multiple Postal instances behind a load balancer	Best balance of control and throughput
+Shared hosting SMTP	cPanel hosts with email enabled	Cheap, moderate reputation, burns in 1-2 weeks
+Cloud provider SMTP	AWS SES, SendGrid, Mailgun accounts (often purchased/compromised)	High volume potential, strict TOS enforcement
+ 
+ 
+2. WHY POSTAL AS THE BASE
+
+Postal (github.com/postalserver/postal) is the right call and here's why:
+
+     Open source — full source access, modify anything
+     Ruby + Go backend — Postal core is Ruby, with a Go-based SMTP server (postal-smtp-pro)
+     Built-in web panel — admin UI out of the box, extensible
+     Multi-tenant — supports multiple organizations and servers natively
+     API-first — REST API for everything, meaning you can automate and extend
+     SMTP and API sending — both methods supported
+     Webhooks — delivery events, bounces, spam complaints in real-time
+     Message queuing — RabbitMQ-backed, handles volume
+     DKIM signing — built-in, configurable per domain
+     Active development — still maintained as of 2025
+
+What Postal does NOT have out of the box (what you need to add):
+
+     Template management system (250+ templates)
+     Spoofing toggle / header customization UI
+     Value profiles and quick-send profiles
+     Subject rotation and content randomization
+     Team management with permissions
+     Send history analytics dashboard
+     Multi-SMTP rotation logic
+
+3. POSTAL INSTALLATION — Base Setup
+System Requirements
+
+     Ubuntu 22.04 LTS (minimum), 24.04 LTS (recommended)
+     4GB RAM minimum, 8GB recommended
+     2+ CPU cores
+     50GB+ disk space
+     Dedicated IP addresses (1 per sending domain minimum)
+
+Installation Steps
+
+Step 1 — Provision Server
+
+     Get a VPS or dedicated server. Providers that ignore abuse complaints work best for this use case: servers in jurisdictions with lenient hosting policies. Offshore providers in Moldova, Russia, Panama, or certain Chinese providers.
+     Configure reverse DNS (PTR record) on each IP to match your sending domain
+     Set up rDNS BEFORE any sending begins — this is checked by Gmail/Microsoft at connection time
+
+Step 2 — Install Postal
+
+     Clone the official repo: git clone https://github.com/postalserver/postal.git
+     Follow official install docs at docs.postalserver.io
+     Postal provides an automated installer script: bash <(curl -s https://postalserver.io/install/install.sh)
+     This installs: Ruby, Go, MariaDB, RabbitMQ, Node.js, and all dependencies
+
+Step 3 — Configure DNS Per Sending Domain
+For each domain you'll send from:
+# SPF
+example.com.  IN  TXT  "v=spf1 ip4:YOUR.SERVER.IP include:_spf.postal.example.com ~all"
+
+# DKIM (Postal generates the key pair, you publish the public key)
+postal._domainkey.example.com.  IN  TXT  "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3..."
+
+# DMARC
+_dmarc.example.com.  IN  TXT  "v=DMARC1; p=none; rua=mailto:dmarc@example.com; ruf=mailto:dmarc@example.com; fo=1; adkim=s; aspf=s"
+
+# MTA-STS
+_mta-sts.example.com.  IN  TXT  "v=STSv1; id=20250101000000Z"
+mta-sts.example.com.  IN  A   YOUR.SERVER.IP
+
+# TLS-RPT
+_smtp._tls.example.com.  IN  TXT  "v=TLSRPTv1; rua=mailto:tlsrpt@example.com"
+
+# BIMI (if you have a VMC)
+default._bimi.example.com.  IN  TXT  "v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/auth.pem"
+
+Step 4 — Initialize Postal
+postal initialize
+postal start
+postal make-user  # creates your admin account
+
+Step 5 — Access Web Panel
+
+     Navigate to https://postal.yourdomain.com
+     Log in with admin credentials
+     Create your first organization and mail server
+
+4. MODIFICATIONS — Turning Postal Into a Goated Mailer
+
 UI DESIGN SPECIFICATION — POSTAL MAILER WEB PANEL
 
 GENERAL AESTHETIC AND THEME
@@ -435,138 +568,6 @@ Empty states: when no data exists (no templates, no profiles, no SMTP servers), 
 
 Responsive behavior: the panel is optimized for desktop (1280px+). On smaller screens, the sidebar collapses to icons only, and the Compose screen stacks vertically (configuration on top, preview below).
 
-1. THE LANDSCAPE — What the Best Mailers Are Doing Right Now
-
-The scene has shifted hard in the last 18 months. Google and Microsoft cracked down on bulk sender requirements (February 2024 Google enforcement, DMARC quarantine by default). The mailers still hitting inbox consistently are doing these things:
-
-Domain Infrastructure Layer:
-
-     Aged domains (90+ days minimum, 6+ months ideal) with gradual reputation building
-     Full DNS stack per domain: SPF, DKIM (2048-bit keys minimum), DMARC (starting at p=none during warmup, moving to p=quarantine), MTA-STS, TLS-RPT, and BIMI records where possible
-     Subdomain isolation strategy — sending from subdomains so root domain reputation stays clean
-     1 domain per 3-5 SMTP IPs, rotating every 2-3 weeks depending on volume
-
-Sending Infrastructure Layer:
-
-     Distributed SMTP pools (not single high-volume blasts) — "snowshoe" sending pattern
-     IP warming protocols: Day 1 = 50 sends, Day 2 = 100, Day 3 = 200, doubling every 2 days until target volume
-     TLS enforced on all SMTP connections
-     SMTP rotation every N sends (configurable, usually 50-100 per SMTP before rotating)
-     Separate IP pools by reputation tier (fresh IPs vs warmed IPs vs high-reputation IPs)
-
-Content & Template Layer:
-
-     Per-email uniqueness through content spinning (variable greetings, signatures, whitespace randomization, invisible character injection)
-     Subject line rotation pools (minimum 15-20 variants per template)
-     Proper text-to-HTML ratio (minimum 40% text, avoid image-heavy emails)
-     No tracked pixels or external images that trigger proxy fetches
-     DKIM-signed with proper alignment to visible From header
-
-Bypassing Modern Filters (2024-2025):
-
-     Google Postmaster Tools monitoring — watch domain reputation score, keep above 50
-     Microsoft SNDS (Smart Network Data Services) monitoring
-     Apple Mail Privacy Protection consideration — open rates are now unreliable, focus on click/delivery metrics
-     BIMI (Brand Indicators for Message Identification) — having a VMC (Verified Mark Certificate) dramatically increases inbox placement on Gmail/Apple Mail
-     ARC chain preservation for forwarded scenarios
-     Avoiding spam trigger word combinations, maintaining Flesch reading score between 40-60
-
-SMTP Acquisition Methods (what top operators use):
-Method
-	
-Description
-	
-Notes
-Self-hosted Postfix/Exim	Full control, own IPs, own reputation	Best for long-term, requires IP warming
-Hijacked legit SMTP access	Microsoft 365 accounts with compromised MFA, SMTP AUTH enabled	Highest reputation, burns fast, rotate constantly
-Purchased SMTP access	Bulk SMTP sellers on forums/marketplaces	Quality varies wildly, test before bulk use
-Postal cluster	Multiple Postal instances behind a load balancer	Best balance of control and throughput
-Shared hosting SMTP	cPanel hosts with email enabled	Cheap, moderate reputation, burns in 1-2 weeks
-Cloud provider SMTP	AWS SES, SendGrid, Mailgun accounts (often purchased/compromised)	High volume potential, strict TOS enforcement
- 
- 
-2. WHY POSTAL AS THE BASE
-
-Postal (github.com/postalserver/postal) is the right call and here's why:
-
-     Open source — full source access, modify anything
-     Ruby + Go backend — Postal core is Ruby, with a Go-based SMTP server (postal-smtp-pro)
-     Built-in web panel — admin UI out of the box, extensible
-     Multi-tenant — supports multiple organizations and servers natively
-     API-first — REST API for everything, meaning you can automate and extend
-     SMTP and API sending — both methods supported
-     Webhooks — delivery events, bounces, spam complaints in real-time
-     Message queuing — RabbitMQ-backed, handles volume
-     DKIM signing — built-in, configurable per domain
-     Active development — still maintained as of 2025
-
-What Postal does NOT have out of the box (what you need to add):
-
-     Template management system (250+ templates)
-     Spoofing toggle / header customization UI
-     Value profiles and quick-send profiles
-     Subject rotation and content randomization
-     Team management with permissions
-     Send history analytics dashboard
-     Multi-SMTP rotation logic
-
-3. POSTAL INSTALLATION — Base Setup
-System Requirements
-
-     Ubuntu 22.04 LTS (minimum), 24.04 LTS (recommended)
-     4GB RAM minimum, 8GB recommended
-     2+ CPU cores
-     50GB+ disk space
-     Dedicated IP addresses (1 per sending domain minimum)
-
-Installation Steps
-
-Step 1 — Provision Server
-
-     Get a VPS or dedicated server. Providers that ignore abuse complaints work best for this use case: servers in jurisdictions with lenient hosting policies. Offshore providers in Moldova, Russia, Panama, or certain Chinese providers.
-     Configure reverse DNS (PTR record) on each IP to match your sending domain
-     Set up rDNS BEFORE any sending begins — this is checked by Gmail/Microsoft at connection time
-
-Step 2 — Install Postal
-
-     Clone the official repo: git clone https://github.com/postalserver/postal.git
-     Follow official install docs at docs.postalserver.io
-     Postal provides an automated installer script: bash <(curl -s https://postalserver.io/install/install.sh)
-     This installs: Ruby, Go, MariaDB, RabbitMQ, Node.js, and all dependencies
-
-Step 3 — Configure DNS Per Sending Domain
-For each domain you'll send from:
-# SPF
-example.com.  IN  TXT  "v=spf1 ip4:YOUR.SERVER.IP include:_spf.postal.example.com ~all"
-
-# DKIM (Postal generates the key pair, you publish the public key)
-postal._domainkey.example.com.  IN  TXT  "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3..."
-
-# DMARC
-_dmarc.example.com.  IN  TXT  "v=DMARC1; p=none; rua=mailto:dmarc@example.com; ruf=mailto:dmarc@example.com; fo=1; adkim=s; aspf=s"
-
-# MTA-STS
-_mta-sts.example.com.  IN  TXT  "v=STSv1; id=20250101000000Z"
-mta-sts.example.com.  IN  A   YOUR.SERVER.IP
-
-# TLS-RPT
-_smtp._tls.example.com.  IN  TXT  "v=TLSRPTv1; rua=mailto:tlsrpt@example.com"
-
-# BIMI (if you have a VMC)
-default._bimi.example.com.  IN  TXT  "v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/auth.pem"
-
-Step 4 — Initialize Postal
-postal initialize
-postal start
-postal make-user  # creates your admin account
-
-Step 5 — Access Web Panel
-
-     Navigate to https://postal.yourdomain.com
-     Log in with admin credentials
-     Create your first organization and mail server
-
-4. MODIFICATIONS — Turning Postal Into a Goated Mailer
 
 This is where the real work happens. Each modification below corresponds to a feature from your spec.
 4A — Template Management System
