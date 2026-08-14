@@ -1,5 +1,5 @@
 Ultimate Mailer Build Guide — Postal-Based, 2025 Modern Stack
-
+MAILER NAME: Black mailer
 1. THE LANDSCAPE — What the Best Mailers Are Doing Right Now
 
 The scene has shifted hard in the last 18 months. Google and Microsoft cracked down on bulk sender requirements (February 2024 Google enforcement, DMARC quarantine by default). The mailers still hitting inbox consistently are doing these things:
@@ -151,7 +151,7 @@ Color palette:
      Error: red (#ef4444) for failures and critical alerts
      Cards and panels: dark purple-tinted gray (#1a1a2e) with subtle 1px border (#2a2a3e)
      Inputs and form fields: dark (#16161e) with purple focus border glow (#8b5cf6 at 50% opacity)
-
+	 Translucent
 Visual effects:
 
      Glassmorphism on cards and panels with subtle backdrop blur (blur 10px, background opacity 0.7)
