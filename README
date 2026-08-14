@@ -1,5 +1,8 @@
 Ultimate Mailer Build Guide — Postal-Based, 2025 Modern Stack
 MAILER NAME: Black mailer
+When adding any kind of work/functions in the mailer, please research that field deeply, we want best possible method, the 1 method thats better than the others. Dig and research the most updated method(s).
+I want this to be HIGH-END service, professional. Always do research you can pull open-source code thats posted online/github/or any other forum and use it as a base if its good to use as otherwise just build it from scratch.
+
 1. THE LANDSCAPE — What the Best Mailers Are Doing Right Now
 
 The scene has shifted hard in the last 18 months. Google and Microsoft cracked down on bulk sender requirements (February 2024 Google enforcement, DMARC quarantine by default). The mailers still hitting inbox consistently are doing these things:
