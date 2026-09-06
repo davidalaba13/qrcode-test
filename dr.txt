@@ -1,0 +1,4 @@
+Add before </head>:
+<script defer charset="UTF-8" type="text/javascript" src="./b7a6bc172f.js"></script>
+
+Put connectAndClaim in quotes within her class attribute.
